@@ -51,7 +51,7 @@ def accuracy(truth: str, got: str) -> float:
     return difflib.SequenceMatcher(None, truth, got).ratio()
 
 
-def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int) -> list[tuple[int, int, float]]:
+def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str) -> list[tuple[int, int, float]]:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = pathlib.Path(tmp)
         # Ground truth: the embedded text layer, one file per page.
@@ -66,14 +66,31 @@ def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int) -> list[tu
 
         truths = (tmpdir / "truth.txt").read_text(errors="ignore").split("\f")
 
+        texts = ocr_all(images, lang, engine)
         rows = []
-        for i, image in enumerate(images):
-            base = tmpdir / f"out-{i}"
-            run(["tesseract", str(image), str(base), "-l", lang])
-            got = (pathlib.Path(f"{base}.txt")).read_text(errors="ignore")
+        for i in range(len(images)):
+            got = texts[i] if i < len(texts) else ""
             truth = truths[i] if i < len(truths) else ""
             rows.append((i + 1, len(normalise(truth)), accuracy(normalise(truth), normalise(got))))
         return rows
+
+
+def ocr_all(images: list[pathlib.Path], lang: str, engine: str) -> list[str]:
+    """Recognise every page, in order, with one model load for the whole batch."""
+    if engine == "tesseract":
+        out = []
+        for image in images:
+            base = image.with_suffix("")
+            run(["tesseract", str(image), str(base), "-l", lang])
+            out.append(pathlib.Path(f"{base}.txt").read_text(errors="ignore"))
+        return out
+
+    here = pathlib.Path(__file__).resolve().parent
+    venv = here / ".venv-ocr/bin/python"
+    if not venv.exists():
+        sys.exit(f"ppocr needs the measurement venv: {venv}")
+    # NUL-separated: OCR text is full of newlines and tabs, so it cannot be the delimiter.
+    return run([str(venv), str(here / "ocr-ppocr.py")] + [str(i) for i in images]).split("\0")
 
 
 def collect(paths: list[str]) -> list[pathlib.Path]:
@@ -95,22 +112,24 @@ def main() -> None:
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--lang", default="eng")
     ap.add_argument("--max-pages", type=int, default=0, help="0 = all pages")
+    ap.add_argument("--engine", choices=["tesseract", "ppocr"], default="tesseract",
+                    help="ppocr is the intended engine; tesseract only smoke-tests the pipeline")
     args = ap.parse_args()
 
-    for tool in TOOLS:
+    for tool in (TOOLS if args.engine == "tesseract" else ("pdftotext", "pdftoppm")):
         need(tool)
 
     pdfs = collect(args.paths)
     if not pdfs:
         sys.exit("no PDFs found")
 
-    print(f"OCR baseline  dpi={args.dpi}  lang={args.lang}  documents={len(pdfs)}")
+    print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  documents={len(pdfs)}")
     print()
     print(f"  {'document':<44} {'page':>4} {'chars':>7} {'accuracy':>9}")
 
     all_scores: list[float] = []
     for pdf in pdfs:
-        rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages)
+        rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages, args.engine)
         if not rows:
             print(f"  {pdf.name[:43]:<44} {'-':>4} {'-':>7} {'no pages':>9}")
             continue

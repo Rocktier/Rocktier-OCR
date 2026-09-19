@@ -8,3 +8,7 @@ resources/
 # 语料不进仓库：扫描件含客户信息，且体积大
 corpus/
 *.pdf
+
+# 本机测量环境（不进仓库）
+.venv-ocr/
+corpus/
