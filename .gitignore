@@ -20,3 +20,6 @@ corpus-zh/
 # Python 字节码，不该进仓库
 __pycache__/
 *.pyc
+
+# Rust 构建产物
+writer/target/

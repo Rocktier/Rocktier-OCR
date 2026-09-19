@@ -1,0 +1,11 @@
+[package]
+name = "write-searchable"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lopdf = "0.36"
+serde_json = "1"
+
+[profile.release]
+opt-level = 2
