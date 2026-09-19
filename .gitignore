@@ -15,3 +15,4 @@ corpus/
 
 # OCR 输出缓存（重跑时免去 2.5 分钟识别）
 .ocr-cache/
+corpus-zh/

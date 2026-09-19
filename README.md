@@ -79,3 +79,42 @@ does not, yet.
 
 Raw per-page numbers: `python3 baseline.py corpus --engine ppocr --dpi 200 --max-pages 1`
 (OCR output is cached in `.ocr-cache/`, so re-scoring is instant).
+
+## Chinese baseline (2026-09-19): 93.7%, just under the gate
+
+Same engine and settings on 6 real Chinese business PDFs (product selection lists and
+catalogues, pulled from the operator's own Downloads — every one of them a document type
+this product would actually see).
+
+| document | char F1 |
+|---|---|
+| 浪鲸选品 | 98.3% |
+| 万达公馆选品清单 | 98.2% |
+| 浪鲸卫浴选品清单 | 96.2% |
+| 九牧育才名苑 | 94.9% |
+| 禾止美学 | 94.2% |
+| 武汉冈森水槽图册 | 80.3% |
+| **mean** | **93.7%** |
+
+Unlike the English set, sequence ratio and char F1 agree here (94.9 vs 94.9, 98.3 vs 98.3),
+so reading order is *not* distorting this number — these are single-column tables. That
+makes 93.7% a cleaner recognition figure than the English 97.5%.
+
+**It is still probably a floor, and that matters before anyone calls it a fail.**
+`pdftotext` extracting CJK depends on each font carrying a usable ToUnicode table; where
+it does not, the "ground truth" is itself wrong and the engine is charged for it. The
+dense, small-font catalogue that scored 80.3% is exactly the shape of document where that
+happens. Isolating truth errors from recognition errors is the next measurement, not a
+conclusion to draw now.
+
+## The question this raises
+
+The project was founded on an English-first position: the strongest free competitor,
+Umi-OCR (MIT, offline, ~47k stars), is Chinese-first and barely visible in the English
+world, so English was where the family could be something other than second best.
+
+The operator's real documents, however, are Chinese. If the target market is actually
+Chinese, that premise has to be re-examined, because the comparison stops being
+"$9.99 versus a $49–199 incumbent" and becomes "$9.99 versus free, mature and offline".
+One concrete thing worth checking first: Umi-OCR's platform coverage. If it is
+Windows-only, Chinese-language macOS users are unserved — and the family ships macOS.
