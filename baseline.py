@@ -17,6 +17,7 @@ The number to watch is the mean; individual near-empty pages are noise.
 """
 
 import argparse
+import collections
 import difflib
 import pathlib
 import re
@@ -45,13 +46,32 @@ def normalise(text: str) -> str:
 
 
 def accuracy(truth: str, got: str) -> float:
-    """1 - (edit distance / truth length), i.e. character accuracy."""
+    """Order-sensitive similarity. Collapses when the two sides read columns in
+    a different order, so it is a floor, not the recognition rate."""
     if not truth:
         return float("nan")
     return difflib.SequenceMatcher(None, truth, got).ratio()
 
 
-def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str) -> list[tuple[int, int, float]]:
+def char_f1(truth: str, got: str) -> float:
+    """Order-free character F1.
+
+    This is the one that answers "did it read the ink": a two-column paper comes
+    back with every word correct and still scores badly on the sequence metric,
+    because pdftotext and the detector weave the columns together differently.
+    Counting characters instead isolates recognition from layout.
+    """
+    if not truth:
+        return float("nan")
+    t, g = collections.Counter(truth), collections.Counter(got)
+    overlap = sum((t & g).values())
+    if not overlap:
+        return 0.0
+    precision, recall = overlap / max(len(got), 1), overlap / len(truth)
+    return 2 * precision * recall / (precision + recall)
+
+
+def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str, cache: pathlib.Path) -> list[tuple[int, int, float, float]]:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = pathlib.Path(tmp)
         # Ground truth: the embedded text layer, one file per page.
@@ -66,12 +86,19 @@ def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: st
 
         truths = (tmpdir / "truth.txt").read_text(errors="ignore").split("\f")
 
-        texts = ocr_all(images, lang, engine)
+        cached = cache / f"{pdf.stem}-{dpi}-{engine}.txt"
+        if cached.exists():
+            texts = cached.read_text(errors="ignore").split("\0")
+        else:
+            texts = ocr_all(images, lang, engine)
+            cache.mkdir(parents=True, exist_ok=True)
+            cached.write_text("\0".join(texts))
         rows = []
         for i in range(len(images)):
             got = texts[i] if i < len(texts) else ""
             truth = truths[i] if i < len(truths) else ""
-            rows.append((i + 1, len(normalise(truth)), accuracy(normalise(truth), normalise(got))))
+            nt, ng = normalise(truth), normalise(got)
+            rows.append((i + 1, len(nt), accuracy(nt, ng), char_f1(nt, ng)))
         return rows
 
 
@@ -112,6 +139,7 @@ def main() -> None:
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--lang", default="eng")
     ap.add_argument("--max-pages", type=int, default=0, help="0 = all pages")
+    ap.add_argument("--cache", default=".ocr-cache", help="reuse OCR output between runs")
     ap.add_argument("--engine", choices=["tesseract", "ppocr"], default="tesseract",
                     help="ppocr is the intended engine; tesseract only smoke-tests the pipeline")
     args = ap.parse_args()
@@ -125,24 +153,25 @@ def main() -> None:
 
     print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  documents={len(pdfs)}")
     print()
-    print(f"  {'document':<44} {'page':>4} {'chars':>7} {'accuracy':>9}")
+    print(f"  {'document':<40} {'page':>4} {'chars':>7} {'seq':>7} {'charF1':>8}")
 
     all_scores: list[float] = []
     for pdf in pdfs:
-        rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages, args.engine)
+        rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages, args.engine,
+                         pathlib.Path(args.cache).expanduser())
         if not rows:
             print(f"  {pdf.name[:43]:<44} {'-':>4} {'-':>7} {'no pages':>9}")
             continue
-        for page, chars, acc in rows:
-            flag = "" if acc >= 0.95 else ("  <- weak" if acc >= 0.7 else "  <- poor")
-            print(f"  {pdf.name[:43]:<44} {page:>4} {chars:>7} {acc:>8.1%}{flag}")
+        for page, chars, acc, f1 in rows:
+            flag = "" if f1 >= 0.95 else ("  <- weak" if f1 >= 0.85 else "  <- poor")
+            print(f"  {pdf.name[:39]:<40} {page:>4} {chars:>7} {acc:>6.1%} {f1:>7.1%}{flag}")
             if chars >= 20:  # ignore near-blank pages when averaging
-                all_scores.append(acc)
+                all_scores.append(f1)
 
     print()
     if all_scores:
         mean = sum(all_scores) / len(all_scores)
-        print(f"  pages scored: {len(all_scores)}   mean accuracy: {mean:.1%}")
+        print(f"  pages scored: {len(all_scores)}   mean charF1: {mean:.1%}")
         print(f"  verdict: {'PASS' if mean >= 0.95 else 'FAIL'} (threshold 95%)")
     else:
         print("  no page had enough text to score")

@@ -12,3 +12,6 @@ corpus/
 # 本机测量环境（不进仓库）
 .venv-ocr/
 corpus/
+
+# OCR 输出缓存（重跑时免去 2.5 分钟识别）
+.ocr-cache/
