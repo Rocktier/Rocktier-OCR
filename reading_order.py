@@ -80,7 +80,11 @@ def order_blocks(blocks):
 
     gutter = find_gutter(blocks)
     if gutter is None:
-        return sorted(blocks, key=_by_position)
+        # The detector already emits a single-column page in reading order. Sorting
+        # it by (y, x) mixes multi-line blocks with side captions and measured *worse*
+        # than leaving it alone: five pages, up to -4.7%, none of which had a gutter.
+        # Only intervene when there is a gutter to undo.
+        return list(blocks)
 
     straddling = [b for b in blocks if _x0(b) < gutter < _x1(b)]
     left = sorted((b for b in blocks if _x1(b) <= gutter), key=_by_position)
@@ -107,8 +111,8 @@ def _selftest():
 
     # A single-column page must be untouched apart from top-to-bottom sorting.
     single = [box(60, y, 540, y + 20, f"P{i}") for i, y in enumerate([200, 40, 120])]
-    # y = 200, 40, 120 for P0, P1, P2 -> top-to-bottom is P1, P2, P0.
-    assert [b["text"] for b in order_blocks(single)] == ["P1", "P2", "P0"], "single column"
+    # Emitted order must be preserved verbatim when there is no gutter.
+    assert [b["text"] for b in order_blocks(single)] == ["P0", "P1", "P2"], "single column"
 
     # Too few blocks: never guess a gutter on two words.
     assert find_gutter(single) is None
