@@ -16,3 +16,7 @@ corpus/
 # OCR 输出缓存（重跑时免去 2.5 分钟识别）
 .ocr-cache/
 corpus-zh/
+
+# Python 字节码，不该进仓库
+__pycache__/
+*.pyc
