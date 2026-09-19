@@ -19,11 +19,14 @@ The number to watch is the mean; individual near-empty pages are noise.
 import argparse
 import collections
 import difflib
+import json
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
+
+import reading_order
 
 TOOLS = ("pdftotext", "pdftoppm", "tesseract")
 
@@ -71,7 +74,7 @@ def char_f1(truth: str, got: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
-def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str, cache: pathlib.Path) -> list[tuple[int, int, float, float]]:
+def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str, cache: pathlib.Path, order: str) -> list[tuple[int, int, float, float]]:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = pathlib.Path(tmp)
         # Ground truth: the embedded text layer, one file per page.
@@ -86,13 +89,17 @@ def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: st
 
         truths = (tmpdir / "truth.txt").read_text(errors="ignore").split("\f")
 
-        cached = cache / f"{pdf.stem}-{dpi}-{engine}.txt"
+        # Cache raw blocks, not joined text: reordering happens after OCR, so one
+        # cache serves every ordering and switching --order costs nothing.
+        cached = cache / f"{pdf.stem}-{dpi}-{engine}.json"
         if cached.exists():
-            texts = cached.read_text(errors="ignore").split("\0")
+            pages = [json.loads(c) for c in cached.read_text(errors="ignore").split("\0") if c.strip()]
         else:
-            texts = ocr_all(images, lang, engine)
+            pages = ocr_all(images, lang, engine)
             cache.mkdir(parents=True, exist_ok=True)
-            cached.write_text("\0".join(texts))
+            cached.write_text("\0".join(json.dumps(p) for p in pages))
+        texts = ["\n".join(b["text"] for b in (reading_order.order_blocks(p) if order == "column" else p))
+                 for p in pages]
         rows = []
         for i in range(len(images)):
             got = texts[i] if i < len(texts) else ""
@@ -109,7 +116,8 @@ def ocr_all(images: list[pathlib.Path], lang: str, engine: str) -> list[str]:
         for image in images:
             base = image.with_suffix("")
             run(["tesseract", str(image), str(base), "-l", lang])
-            out.append(pathlib.Path(f"{base}.txt").read_text(errors="ignore"))
+            text = pathlib.Path(f"{base}.txt").read_text(errors="ignore")
+            out.append([{"box": [[0, 0], [0, 0], [0, 0], [0, 0]], "text": text, "score": 0.0}])
         return out
 
     here = pathlib.Path(__file__).resolve().parent
@@ -117,7 +125,8 @@ def ocr_all(images: list[pathlib.Path], lang: str, engine: str) -> list[str]:
     if not venv.exists():
         sys.exit(f"ppocr needs the measurement venv: {venv}")
     # NUL-separated: OCR text is full of newlines and tabs, so it cannot be the delimiter.
-    return run([str(venv), str(here / "ocr-ppocr.py")] + [str(i) for i in images]).split("\0")
+    chunks = run([str(venv), str(here / "ocr-ppocr.py")] + [str(i) for i in images]).split("\0")
+    return [json.loads(c) for c in chunks if c.strip()]
 
 
 def collect(paths: list[str]) -> list[pathlib.Path]:
@@ -140,6 +149,8 @@ def main() -> None:
     ap.add_argument("--lang", default="eng")
     ap.add_argument("--max-pages", type=int, default=0, help="0 = all pages")
     ap.add_argument("--cache", default=".ocr-cache", help="reuse OCR output between runs")
+    ap.add_argument("--order", choices=["raw", "column"], default="column",
+                    help="column = undo the detector's column weaving (default)")
     ap.add_argument("--engine", choices=["tesseract", "ppocr"], default="tesseract",
                     help="ppocr is the intended engine; tesseract only smoke-tests the pipeline")
     args = ap.parse_args()
@@ -151,14 +162,15 @@ def main() -> None:
     if not pdfs:
         sys.exit("no PDFs found")
 
-    print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  documents={len(pdfs)}")
+    print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  order={args.order}  documents={len(pdfs)}")
     print()
     print(f"  {'document':<40} {'page':>4} {'chars':>7} {'seq':>7} {'charF1':>8}")
 
     all_scores: list[float] = []
+    all_seq: list[float] = []
     for pdf in pdfs:
         rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages, args.engine,
-                         pathlib.Path(args.cache).expanduser())
+                         pathlib.Path(args.cache).expanduser(), args.order)
         if not rows:
             print(f"  {pdf.name[:43]:<44} {'-':>4} {'-':>7} {'no pages':>9}")
             continue
@@ -167,11 +179,14 @@ def main() -> None:
             print(f"  {pdf.name[:39]:<40} {page:>4} {chars:>7} {acc:>6.1%} {f1:>7.1%}{flag}")
             if chars >= 20:  # ignore near-blank pages when averaging
                 all_scores.append(f1)
+                all_seq.append(acc)
 
     print()
     if all_scores:
         mean = sum(all_scores) / len(all_scores)
-        print(f"  pages scored: {len(all_scores)}   mean charF1: {mean:.1%}")
+        mean_seq = sum(all_seq) / len(all_seq) if all_seq else float("nan")
+        print(f"  pages scored: {len(all_scores)}   mean charF1: {mean:.1%}   mean seq: {mean_seq:.1%}")
+        print("  (charF1 is order-free and should not move; seq is what reading order fixes)")
         print(f"  verdict: {'PASS' if mean >= 0.95 else 'FAIL'} (threshold 95%)")
     else:
         print("  no page had enough text to score")
