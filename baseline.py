@@ -74,11 +74,17 @@ def char_f1(truth: str, got: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
-def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str, cache: pathlib.Path, order: str) -> list[tuple[int, int, float, float]]:
+def score_pdf(pdf: pathlib.Path, dpi: int, lang: str, max_pages: int, engine: str, cache: pathlib.Path, order: str, truth: str) -> list[tuple[int, int, float, float]]:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = pathlib.Path(tmp)
         # Ground truth: the embedded text layer, one file per page.
-        run(["pdftotext", "-layout", str(pdf), str(tmpdir / "truth.txt")])
+        truth_cmd = ["pdftotext"]
+        if truth == "layout":
+            # Preserves the visual page: for a two-column paper that means weaving
+            # the columns together across each visual line, which is NOT reading order.
+            truth_cmd.append("-layout")
+        # Page breaks are kept either way: the scorer splits truth per page on \f.
+        run(truth_cmd + [str(pdf), str(tmpdir / "truth.txt")])
         cmd = ["pdftoppm", "-r", str(dpi), "-png", str(pdf), str(tmpdir / "page")]
         if max_pages:
             cmd[1:1] = ["-l", str(max_pages)]
@@ -149,6 +155,8 @@ def main() -> None:
     ap.add_argument("--lang", default="eng")
     ap.add_argument("--max-pages", type=int, default=0, help="0 = all pages")
     ap.add_argument("--cache", default=".ocr-cache", help="reuse OCR output between runs")
+    ap.add_argument("--truth", choices=["flow", "layout"], default="flow",
+                    help="flow = pdftotext reading-order mode (default); layout = visual page")
     ap.add_argument("--order", choices=["raw", "column"], default="column",
                     help="column = undo the detector's column weaving (default)")
     ap.add_argument("--engine", choices=["tesseract", "ppocr"], default="tesseract",
@@ -162,7 +170,7 @@ def main() -> None:
     if not pdfs:
         sys.exit("no PDFs found")
 
-    print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  order={args.order}  documents={len(pdfs)}")
+    print(f"OCR baseline  engine={args.engine}  dpi={args.dpi}  lang={args.lang}  order={args.order}  truth={args.truth}  documents={len(pdfs)}")
     print()
     print(f"  {'document':<40} {'page':>4} {'chars':>7} {'seq':>7} {'charF1':>8}")
 
@@ -170,7 +178,7 @@ def main() -> None:
     all_seq: list[float] = []
     for pdf in pdfs:
         rows = score_pdf(pdf, args.dpi, args.lang, args.max_pages, args.engine,
-                         pathlib.Path(args.cache).expanduser(), args.order)
+                         pathlib.Path(args.cache).expanduser(), args.order, args.truth)
         if not rows:
             print(f"  {pdf.name[:43]:<44} {'-':>4} {'-':>7} {'no pages':>9}")
             continue

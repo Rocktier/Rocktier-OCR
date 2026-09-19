@@ -139,3 +139,34 @@ Chinese, that premise has to be re-examined, because the comparison stops being
 "$9.99 versus a $49–199 incumbent" and becomes "$9.99 versus free, mature and offline".
 One concrete thing worth checking first: Umi-OCR's platform coverage. If it is
 Windows-only, Chinese-language macOS users are unserved — and the family ships macOS.
+
+## Reading order: gutter detection works, and the right ruler matters
+
+`reading_order.py` splits a two-column page at its gutter — the vertical band no
+block crosses — using PP-OCR's own boxes. No new dependency.
+
+Measured on the 20 English pages, two ground truths, one OCR run (cached):
+
+| ground truth | raw detector order | gutter reordering |
+|---|---|---|
+| `pdftotext -layout` (visual page) | 82.8% | 58.9% |
+| `pdftotext` (reading-order mode) | 58.5% | **71.0%** |
+
+**The two rows are inverted, and that is the whole lesson.** `-layout` preserves the
+visual page, so on a two-column paper it emits the columns woven together across each
+visual line. The detector's raw order happens to match that, which made it look good and
+made a *correct* reordering look like a regression. Judged against text that is itself
+reconstructed in reading order, the reordering is worth **+12.5 points**.
+
+**Rule: never judge reading order against `pdftotext -layout`.** Use the default mode.
+`baseline.py --truth flow` is the default for this reason; `--truth layout` stays only to
+demonstrate the trap.
+
+**Not finished.** 71% is progress, not a solution:
+
+- full-width blocks below the columns (figure captions, footers) are currently hoisted to
+  the front, because a block that spans the gutter is ordered as if it were a heading
+- gutter detection is a single global split; three-column pages and pages with an inset
+  figure need more than one
+- recognition itself is unchanged at 97.4–97.5% char F1 — reordering moves text, it does
+  not read it
