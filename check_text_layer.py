@@ -11,12 +11,15 @@ Uses the OCR cache, so it does not re-recognise anything.
 """
 
 import argparse
+import difflib
 import json
 import pathlib
 import re
 import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent
+
+import reading_order  # noqa: E402  (same directory)
 WRITER = ROOT / "writer/target/release/write-searchable"
 
 
@@ -42,12 +45,17 @@ def main():
     ap.add_argument("--dpi", type=int, default=200)
     ap.add_argument("--cache", default=".ocr-cache")
     ap.add_argument("--corpus", default="corpus")
+    ap.add_argument("--order", choices=["raw", "column"], default="column")
     a = ap.parse_args()
 
     cached = ROOT / a.cache / f"{a.stem}-{a.dpi}-ppocr.json"
     if not cached.exists():
         raise SystemExit(f"no OCR cache at {cached} - run baseline.py first")
     blocks = json.loads(cached.read_text(errors="ignore").split("\0")[0])
+    if a.order == "column":
+        # The write side does not reorder: it draws what it is handed, in order.
+        # Reading order is applied here, so both halves stay independently testable.
+        blocks = reading_order.order_blocks(blocks)
 
     work = pathlib.Path("/tmp/ocr-write")
     work.mkdir(exist_ok=True)
@@ -94,6 +102,12 @@ def main():
     print(f"  4. single layer: {'PASS' if got_words < ocr_words * 1.5 else 'FAIL'} (a stacked layer would roughly double)")
     print(f"  5. visual: PASS by construction (image drawn once, text uses 3 Tr); "
           f"size {out.stat().st_size / 1024:.0f}KB vs jpeg {jpg.stat().st_size / 1024:.0f}KB")
+    truth = subprocess.run(["pdftotext", str(ROOT / a.corpus / f"{a.stem}.pdf"), "-"],
+                           capture_output=True, text=True).stdout
+    def norm(t):
+        return re.sub(r"\s+", "", t)
+    ratio = difflib.SequenceMatcher(None, norm(truth), norm(text)).ratio()
+    print(f"  6. order   extracted text vs reading-order truth: {ratio:.1%}  (order={a.order})")
     print("  1. selectable: not automatable - open it in Preview once")
 
 
