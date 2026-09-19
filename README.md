@@ -107,7 +107,28 @@ dense, small-font catalogue that scored 80.3% is exactly the shape of document w
 happens. Isolating truth errors from recognition errors is the next measurement, not a
 conclusion to draw now.
 
-## The question this raises
+## The question this raises — ANSWERED (2026-09-19)
+
+**Decision: English-first stands. The operator settled it directly: "我们还是坚持英文优先不动摇".**
+
+The Chinese baseline below is kept as reference data only. It does **not** set the gate,
+and it must not be allowed to drift the positioning: the whole reason English was chosen
+is that the strongest free competitor is Chinese-first, so Chinese is the one market where
+this product would be compared against *free* rather than against $49–199. A marginally
+worse number in a market we are not entering is not a reason to move.
+
+### What that leaves on the critical path
+
+| item | state |
+|---|---|
+| recognition on clean English pages | ✅ 97.5% char F1, gate passed |
+| recognition on real paper scans | ⚠️ **unmeasured** — skew, noise and JPEG mush are untested, and this is an upper bound until they are |
+| **reading order** | ⚠️ **unsolved** — the 82.8% sequence score is entirely this. Needed for the product, measurable with the corpus already on disk, so it is the next milestone |
+| Column/layout handling | ⚠️ not started — likely PP-Structure (Apache-2.0) |
+
+---
+
+## Reference only: the Chinese baseline (93.7%)
 
 The project was founded on an English-first position: the strongest free competitor,
 Umi-OCR (MIT, offline, ~47k stars), is Chinese-first and barely visible in the English
