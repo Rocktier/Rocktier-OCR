@@ -26,6 +26,10 @@ use lopdf::{dictionary, Document, Object, Stream};
 /// agree, which is the point of measuring rather than trusting.
 const WIDTHS: [f64; 95] = [312.0, 278.0, 500.0, 556.0, 556.0, 889.0, 500.0, 500.0, 333.0, 333.0, 389.0, 584.0, 278.0, 333.0, 278.0, 278.0, 556.0, 556.0, 556.0, 556.0, 556.0, 556.0, 556.0, 556.0, 556.0, 556.0, 278.0, 278.0, 500.0, 584.0, 500.0, 556.0, 1015.0, 667.0, 667.0, 722.0, 722.0, 667.0, 611.0, 778.0, 722.0, 278.0, 500.0, 667.0, 556.0, 833.0, 722.0, 778.0, 667.0, 778.0, 722.0, 667.0, 611.0, 722.0, 667.0, 944.0, 667.0, 667.0, 611.0, 278.0, 278.0, 278.0, 469.0, 556.0, 333.0, 556.0, 556.0, 500.0, 556.0, 556.0, 278.0, 556.0, 556.0, 222.0, 222.0, 500.0, 222.0, 833.0, 556.0, 556.0, 556.0, 556.0, 333.0, 500.0, 278.0, 556.0, 500.0, 722.0, 500.0, 500.0, 500.0, 334.0, 260.0, 334.0, 584.0];
 
+fn word_units(word: &str) -> f64 {
+    word.chars().map(char_width).sum()
+}
+
 fn char_width(ch: char) -> f64 {
     let c = ch as u32;
     if (32..=126).contains(&c) { WIDTHS[(c - 32) as usize] } else { 500.0 }
@@ -112,28 +116,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Td is relative to the current line matrix, so each word advances by the
         // previous word's estimated width. Without this every word lands on top of
         // the first one, and the whole line selects as a single block.
-        let mut advance = 0.0;
-        for word in words {
-            if advance != 0.0 {
-                content.push_str(&format!("{advance:.2} 0 Td\n"));
-            }
+        // Split the line box into words the way the reader will read it back:
+        // proportionally to the words' real advances, then scaled as a whole so the
+        // line ends exactly at the right edge of the box. Positions come from the
+        // cumulative sum, never from an accumulated estimate, so nothing drifts.
+        let units: f64 = words.iter().map(|w| word_units(w)).sum::<f64>()
+            + (words.len().saturating_sub(1)) as f64 * char_width(' ');
+        let natural = units / 1000.0 * size;
+        let scale = if natural > 0.01 { _width / natural } else { 1.0 };
+        // Tz squeezes or stretches the glyphs so each word's rendered width equals the
+        // share of the line it actually occupies. The font size stays at the line
+        // height, which keeps the hit-boxes the right height as well as the right width.
+        content.push_str(&format!("{:.3} Tz\n", scale * 100.0));
+
+        let mut cursor = x0;
+        for (i, word) in words.iter().enumerate() {
             let escaped = word
                 .replace('\\', r"\\")
                 .replace('(', r"\(")
                 .replace(')', r"\)");
-            content.push_str(&format!("({escaped}) Tj\n"));
-            // The width here is an estimate (share of the line box by character count),
-            // while the extractor derives positions from the font's real metrics. If the
-            // estimate comes out smaller, the next word starts inside this one and the
-            // two merge on extraction - that is how 603 words became 319. So overshoot
-            // deliberately and add a space, which is the gap an extractor reads as a
-            // word break.
-            let estimated = word.chars().map(char_width).sum::<f64>() / 1000.0 * size;
-            // Proportional to the line box, so the running total still ends at the
-            // box edge and words do not drift off the line. The floor matters for
-            // one- and two-letter words, where 1.15x an already tiny estimate leaves
-            // no gap at all and the extractor keeps them glued.
-            advance = estimated + char_width(' ') / 1000.0 * size;
+            content.push_str(&format!("1 0 0 1 {cursor:.2} {baseline:.2} Tm\n({escaped}) Tj\n"));
+            cursor += word_units(word) / 1000.0 * size * scale;
+            if i + 1 < words.len() {
+                cursor += char_width(' ') / 1000.0 * size * scale;
+            }
         }
         content.push('\n');
     }
