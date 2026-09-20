@@ -2,9 +2,12 @@
 
 Makes scans and screenshots searchable. Offline, private, small, one-time purchase.
 
-**Status: not started.** No app code yet — and deliberately so. The project is gated on
-an accuracy baseline (see *Gate* below), because accuracy decides whether it is worth
-building at all.
+**Status: gate passed; the write side is being built.** There is still no user
+interface, and deliberately so. The baseline that decides whether this project is worth
+building at all came back at 97.5% character F1 on real English papers (see *Gate*
+below), which moved the work onto the piece everything else depends on: **producing a
+searchable PDF at all** — placing a hidden text layer, and measuring text widths from
+the reader rather than estimating them.
 
 ## Scope, and what is out of scope
 
@@ -123,7 +126,8 @@ worse number in a market we are not entering is not a reason to move.
 |---|---|
 | recognition on clean English pages | ✅ 97.5% char F1, gate passed |
 | recognition on real paper scans | ⚠️ **unmeasured** — skew, noise and JPEG mush are untested, and this is an upper bound until they are |
-| **reading order** | ⚠️ **unsolved** — the 82.8% sequence score is entirely this. Needed for the product, measurable with the corpus already on disk, so it is the next milestone |
+| **writing a searchable PDF** | 🔨 **in progress** — the milestone everything else depends on: hidden text layer placement, widths measured from the reader |
+| **reading order** | ⚠️ **partial** — gutter reordering is in and worth +12.5 points (71% against reading-order truth), but full-width blocks below the columns are still hoisted to the front and three-column pages need more than one split |
 | Column/layout handling | ⚠️ not started — likely PP-Structure (Apache-2.0) |
 
 ---
