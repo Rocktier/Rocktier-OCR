@@ -188,15 +188,34 @@ def main():
             # actually open PDFs in want more: at 0.15 em a title came back as
             # REFINEMENTISINHERENTLYEDITABLE in Edge while pdftotext saw every space.
             # Grading this with poppler alone is how that went unnoticed.
-            tightest = None
-            for s1, s2 in zip(side, side[1:]):
-                if abs(s1["y0"] - s2["y0"]) < 0.5 and s2["x0"] > s1["x0"]:
-                    h = s2["y1"] - s2["y0"]
+            # Group into lines before comparing. Each word now carries its own tight
+            # box, so two words on one line no longer share a y0 - pairing them in the
+            # order they were written was measuring neighbours that are not
+            # neighbours, and reported overlaps that were not there.
+            # For each word, the nearest word to its right whose vertical range
+            # overlaps it - the same test the writer uses when it nudges, so the
+            # measurement and the fix agree about which words are neighbours.
+            # Bucketing by baseline looked simpler and was wrong: words on one line
+            # do not share a y0 once each carries its own tight box.
+            gaps = []
+            for a in side:
+                nearest = None
+                for b in side:
+                    if b is a or b["x0"] <= a["x1"]:
+                        continue
+                    if not (a["y0"] < b["y1"] - 0.01 and a["y1"] > b["y0"] + 0.01):
+                        continue
+                    if nearest is None or b["x0"] < nearest["x0"]:
+                        nearest = b
+                if nearest is not None:
+                    h = nearest["y1"] - nearest["y0"]
                     if h > 0.5:
-                        g = (s2["x0"] - s1["x1"]) / h
-                        tightest = g if tightest is None else min(tightest, g)
-            if tightest is not None:
-                print(f"  7. gap      tightest {tightest:.3f} em "
+                        gaps.append((nearest["x0"] - a["x1"]) / h)
+            if gaps:
+                gaps.sort()
+                tightest = gaps[0]
+                print(f"  7. gap      tightest {tightest:.3f} em, "
+                      f"median {gaps[len(gaps) // 2]:.3f} em "
                       f"({'PASS' if tightest >= 0.2 else 'FAIL'}, viewers want >=0.2 em; "
                       f"poppler alone needs only ~0.1)")
         else:

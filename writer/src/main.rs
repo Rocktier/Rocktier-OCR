@@ -186,6 +186,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if words.is_empty() {
             continue;
         }
+
+        // Prefer the word boxes the engine measured. They carry each word's real width
+        // and the real gap that follows it, so nothing has to be estimated. Everything
+        // after this branch is the estimate used when they are absent - spreading words
+        // across the line's box by length - and estimating is what let neighbours come
+        // back fused, "Chordedit" and "Lu" as one word.
+        if let Some(measured) = block["words"].as_array() {
+            if !measured.is_empty() {
+                for w in measured {
+                    let wt = match w["text"].as_str() {
+                        Some(t) => t,
+                        None => continue,
+                    };
+                    if wt.is_empty() {
+                        continue;
+                    }
+                    let wp = match w["box"].as_array() {
+                        Some(p) => p,
+                        None => continue,
+                    };
+                    let wxs: Vec<f64> = wp
+                        .iter()
+                        .map(|p| p[0].as_f64().unwrap_or(0.0) * scale)
+                        .collect();
+                    let wys: Vec<f64> = wp
+                        .iter()
+                        .map(|p| p[1].as_f64().unwrap_or(0.0) * scale)
+                        .collect();
+                    let wx0 = wxs.iter().cloned().fold(f64::MAX, f64::min);
+                    let wx1 = wxs.iter().cloned().fold(f64::MIN, f64::max);
+                    let wy0 = wys.iter().cloned().fold(f64::MAX, f64::min);
+                    let wy1 = wys.iter().cloned().fold(f64::MIN, f64::max);
+                    let wsize = (wy1 - wy0).max(1.0);
+
+                    // Render the word at exactly the width the engine measured.
+                    let natural = word_units(wt) / 1000.0 * wsize;
+                    let stretch = if natural > 0.01 { (wx1 - wx0) / natural } else { 1.0 };
+
+                    // Only a small overlap is nudged apart. A large one is a layout
+                    // error, and shoving a word clear of it walks the rest of the line
+                    // off the page - which is how an earlier attempt here lost two
+                    // thirds of the words on a page.
+                    // The measured width is kept, but a measured gap that is too small
+                    // is not: the reader needs roughly a tenth of the font size to see
+                    // a break, and viewers want more. Nudging is capped because a
+                    // genuinely large overlap is a layout error, and shoving a word
+                    // clear of one walks the rest of the line off the page.
+                    let min_gap = char_width(' ') / 1000.0 * wsize;
+                    let max_nudge = 1.2 * wsize;
+                    let mut start = wx0;
+                    for &(py0, py1, px1) in &extents {
+                        if wy0 < py1 - 0.01 && wy1 > py0 + 0.01 {
+                            let need = px1 + min_gap - start;
+                            if need > 0.0 && need <= max_nudge {
+                                start = px1 + min_gap;
+                            }
+                        }
+                    }
+                    let end = start + (wx1 - wx0);
+
+                    content.push_str(&format!("/F0 {wsize:.2} Tf\n{:.3} Tz\n", stretch * 100.0));
+                    placed.push(serde_json::json!({
+                        "text": wt,
+                        "x0": start,
+                        "x1": end,
+                        // Top-left origin, the same one pdftotext -bbox reports in, so
+                        // the checker can subtract the two without flipping anything.
+                        "y0": wy0,
+                        "y1": wy1,
+                    }));
+                    let codes: String = wt.encode_utf16().map(|u| format!("{u:04X}")).collect();
+                    content.push_str(&format!(
+                        "1 0 0 1 {start:.2} {:.2} Tm\n<{codes}> Tj\n",
+                        ph - wy1));
+                    extents.push((wy0, wy1, end));
+                }
+                content.push('\n');
+                continue;
+            }
+        }
+
         let _width = x1 - x0;
         content.push_str(&format!("/F0 {size:.2} Tf\n1 0 0 1 {x0:.2} {baseline:.2} Tm\n"));
         // Td is relative to the current line matrix, so each word advances by the
