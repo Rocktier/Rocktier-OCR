@@ -134,7 +134,7 @@ worse number in a market we are not entering is not a reason to move.
 
 | criterion | threshold | measured |
 |---|---|---|
-| text round trip | >=99% | **97.3%** — not reached |
+| text round trip | >=99% | **97.5%** — not reached |
 | word boxes (write side) | median >4pt | 27.8pt, 20/20 |
 | one text layer | yes | 20/20 |
 | visually unchanged | yes | 20/20 (measured: the embedded image is byte-identical) |
