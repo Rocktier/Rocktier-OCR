@@ -143,6 +143,13 @@ worse number in a market we are not entering is not a reason to move.
 Confirmed by hand in a real reader (2026-09-24): the operator opened the sample in
 Edge - PDFium, the same engine this product bundles - and every space survived,
 including in a title that previously came back as REFINEMENTISINHERENTLYEDITABLE.
+
+It also works on whole documents now. The writer opens the original PDF and layers
+text onto every page rather than rebuilding one page from a raster, so pages,
+images, metadata and bookmarks cannot go missing - the earlier approach threw away
+378 of the corpus's 398 pages. Asked to replace, it strips each recognised page's
+existing text first: nine pages gave back 5,222 words against 5,112 recognised,
+where a stacked layer would have given roughly ten thousand.
 Non-Latin-1 characters no longer come back as mojibake either. Helvetica with
 WinAnsiEncoding is single-byte, so an arrow was read as its three UTF-8 bytes, one
 character each. The font is now Type0 over Identity-H with an explicit ToUnicode map,
