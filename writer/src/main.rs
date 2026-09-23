@@ -88,6 +88,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "q\n{pw:.2} 0 0 {ph:.2} 0 0 cm\n/Im0 Do\nQ\nBT\n3 Tr\n"
     ));
 
+    // The boxes this writer actually places, in order. The checker compares the
+    // reader's geometry against this rather than against the input, so criterion 6
+    // measures the write side instead of the detector.
+    let mut placed: Vec<serde_json::Value> = Vec::new();
+
     for block in &blocks {
         let text = block["text"].as_str().unwrap_or("");
         if text.is_empty() {
@@ -131,12 +136,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut cursor = x0;
         for (i, word) in words.iter().enumerate() {
+            let advance = word_units(word) / 1000.0 * size * scale;
+            placed.push(serde_json::json!({
+                "text": *word,
+                "x0": cursor,
+                "x1": cursor + advance,
+                // Top-left origin, the same one pdftotext -bbox reports in, so the
+                // checker can subtract the two without flipping anything.
+                "y0": y0,
+                "y1": y1,
+            }));
             let escaped = word
                 .replace('\\', r"\\")
                 .replace('(', r"\(")
                 .replace(')', r"\)");
             content.push_str(&format!("1 0 0 1 {cursor:.2} {baseline:.2} Tm\n({escaped}) Tj\n"));
-            cursor += word_units(word) / 1000.0 * size * scale;
+            cursor += advance;
             if i + 1 < words.len() {
                 cursor += char_width(' ') / 1000.0 * size * scale;
             }
@@ -144,6 +159,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         content.push('\n');
     }
     content.push_str("ET\n");
+
+    // Sidecar beside the PDF. Criterion 6 is a geometric comparison, and it cannot
+    // be made without knowing where the words actually went.
+    fs::write(format!("{out}.boxes.json"), serde_json::to_vec(&placed)?)?;
 
     let content_id = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
     let page_id = doc.add_object(dictionary! {

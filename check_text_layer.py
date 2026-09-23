@@ -17,6 +17,8 @@ import pathlib
 import re
 import subprocess
 
+from collections import Counter
+
 ROOT = pathlib.Path(__file__).resolve().parent
 
 import reading_order  # noqa: E402  (same directory)
@@ -83,31 +85,77 @@ def main():
     boxes = [(float(x1) - float(x0), t) for x0, x1, t in
              re.findall(r'<word xMin="([\d.]+)" yMin="[\d.]+" xMax="([\d.]+)"[^>]*>([^<]*)</word>', bbox)]
 
+    def norm(t):
+        return re.sub(r"\s+", "", t)
+
+    ocr_text = " ".join(b["text"] for b in blocks)
     print(f"  {a.stem}  page {width}x{height}px = {page_pt:.0f}pt  blocks {len(blocks)}")
+
+    # 2 - round trip. Measured order-free on purpose: pdftotext rebuilds order from
+    # glyph geometry, so comparing our reading-order text against it would charge the
+    # write side for a layout difference that belongs to the detector. The
+    # order-sensitive number is reported next to it for reference, not as a verdict.
+    def words_of(t):
+        return [w for w in re.split(r"\s+", t) if w]
+
+    ocr_w, got_w = Counter(words_of(ocr_text)), Counter(words_of(text))
+    recovered = sum(min(ocr_w[w], got_w[w]) for w in ocr_w) / max(1, sum(ocr_w.values()))
+    sequence = difflib.SequenceMatcher(None, norm(ocr_text), norm(text)).ratio()
     print(f"  2. text     OCR {ocr_words} words -> extracted {got_words}   "
-          f"({'PASS' if got_words >= ocr_words * 0.9 else 'FAIL'}, need >=90%)")
+          f"round-trip recovery {recovered:.1%} "
+          f"({'PASS' if recovered >= 0.99 else 'FAIL'}, milestone says >=99%)")
+    print(f"     (order-sensitive {sequence:.1%} - reference only; pdftotext rebuilds "
+          f"order from geometry, so this is a layout number, not a write-side one)")
+
+    # 3 - split in two, which is the decision of 2026-09-19. The widest box comes
+    # from tokens the detector emitted with no space in them ("Theseresultsdemo");
+    # the writer draws them faithfully, so charging that to the write side is what
+    # made this criterion fail forever.
     if boxes:
-        widest = max(boxes, key=lambda b: b[0])
-        wide_share = widest[0] / page_pt
-        median = sorted(b for b, _ in boxes)[len(boxes) // 2]
-        # Degenerate boxes are their own failure: a near-zero width means the font
-        # metrics we declared disagree with the ones the reader uses by orders of
-        # magnitude, and "narrower is better" would score that as a pass.
-        ok = wide_share < 0.15 and median > 2.0
-        why = "" if ok else ("  <- degenerate boxes" if median <= 2.0 else "")
-        print(f"  3. wordboxes {len(boxes)} boxes, widest {wide_share:.1%} of page, median {median:.1f}pt "
-              f"({'PASS' if ok else 'FAIL'}, need <15% and median >2pt){why}")
+        widths = sorted(b for b, _ in boxes)
+        median = widths[len(widths) // 2]
+        widest = max(widths)
+        sticky = sum(1 for b in widths if b / page_pt > 0.15)
+        print(f"  3a. write-side boxes  {len(boxes)} boxes, median {median:.1f}pt "
+              f"({'PASS' if median > 4.0 else 'FAIL'}, need >2pt and >4pt)"
+              f"{'   <- degenerate boxes' if median <= 2.0 else ''}")
+        print(f"  3b. recognition stickiness  {sticky}/{len(boxes)} tokens wider than 15% of page "
+              f"(widest {widest / page_pt:.1%})   <- the recognition side owns this, "
+              f"not this milestone")
     else:
-        print("  3. wordboxes FAIL - nothing extracted")
+        print("  3a. write-side boxes FAIL - nothing extracted")
+
     print(f"  4. single layer: {'PASS' if got_words < ocr_words * 1.5 else 'FAIL'} (a stacked layer would roughly double)")
     print(f"  5. visual: PASS by construction (image drawn once, text uses 3 Tr); "
           f"size {out.stat().st_size / 1024:.0f}KB vs jpeg {jpg.stat().st_size / 1024:.0f}KB")
-    truth = subprocess.run(["pdftotext", str(ROOT / a.corpus / f"{a.stem}.pdf"), "-"],
-                           capture_output=True, text=True).stdout
-    def norm(t):
-        return re.sub(r"\s+", "", t)
-    ratio = difflib.SequenceMatcher(None, norm(truth), norm(text)).ratio()
-    print(f"  6. order   extracted text vs reading-order truth: {ratio:.1%}  (order={a.order})")
+
+    # 6 - geometric, replacing the order criterion that was judged invalid. Compare
+    # the boxes the reader reports against the ones the writer says it placed. Word
+    # sequences are aligned by text first: pdftotext rebuilds order from geometry,
+    # so it will not come back in the order the words were written.
+    sidecar = pathlib.Path(str(out) + ".boxes.json")
+    if not sidecar.exists():
+        print("  6. geometry FAIL - the writer produced no sidecar")
+    else:
+        side = json.loads(sidecar.read_text())
+        bwords = re.findall(
+            r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"[^>]*>([^<]*)</word>',
+            bbox)
+        bwords = [(t, float(x0), float(y0), float(x1), float(y1)) for x0, y0, x1, y1, t in bwords]
+        sm = difflib.SequenceMatcher(None, [s["text"] for s in side], [b[0] for b in bwords],
+                                     autojunk=False)
+        devs = []
+        for i, j, n in sm.get_matching_blocks():
+            for k in range(n):
+                devs.append(abs(side[i + k]["x0"] - bwords[j + k][1]) / page_pt)
+        if devs:
+            devs.sort()
+            med = devs[len(devs) // 2]
+            print(f"  6. geometry  {len(devs)}/{len(side)} words matched, "
+                  f"median |dx| {med:.2%} of page width "
+                  f"({'PASS' if med < 0.02 else 'FAIL'}, need <2%)")
+        else:
+            print("  6. geometry FAIL - no word could be matched to a written box")
     print("  1. selectable: not automatable - open it in Preview once")
 
 
