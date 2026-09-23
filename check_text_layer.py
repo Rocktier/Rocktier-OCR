@@ -181,6 +181,24 @@ def main():
             print(f"  6. geometry  {len(devs)}/{len(side)} words matched, "
                   f"median |dx| {med:.2%} of page width "
                   f"({'PASS' if med < 0.02 else 'FAIL'}, need <2%)")
+
+            # 7 - will a viewer keep the words apart? This is the gap as a fraction of
+            # the font size, because that ratio is what decides it. poppler breaks
+            # words at roughly a tenth of the font size, but the readers people
+            # actually open PDFs in want more: at 0.15 em a title came back as
+            # REFINEMENTISINHERENTLYEDITABLE in Edge while pdftotext saw every space.
+            # Grading this with poppler alone is how that went unnoticed.
+            tightest = None
+            for s1, s2 in zip(side, side[1:]):
+                if abs(s1["y0"] - s2["y0"]) < 0.5 and s2["x0"] > s1["x0"]:
+                    h = s2["y1"] - s2["y0"]
+                    if h > 0.5:
+                        g = (s2["x0"] - s1["x1"]) / h
+                        tightest = g if tightest is None else min(tightest, g)
+            if tightest is not None:
+                print(f"  7. gap      tightest {tightest:.3f} em "
+                      f"({'PASS' if tightest >= 0.2 else 'FAIL'}, viewers want >=0.2 em; "
+                      f"poppler alone needs only ~0.1)")
         else:
             print("  6. geometry FAIL - no word could be matched to a written box")
     print("  1. selectable: not automatable - open it in Preview once")
