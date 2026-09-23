@@ -15,6 +15,7 @@ import difflib
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 
 from collections import Counter
@@ -101,11 +102,23 @@ def main():
     ocr_w, got_w = Counter(words_of(ocr_text)), Counter(words_of(text))
     recovered = sum(min(ocr_w[w], got_w[w]) for w in ocr_w) / max(1, sum(ocr_w.values()))
     sequence = difflib.SequenceMatcher(None, norm(ocr_text), norm(text)).ratio()
+    missing = {w: (n - got_w.get(w, 0)) for w, n in ocr_w.items() if got_w.get(w, 0) < n}
+    missing_n = sum(missing.values())
+    ascii_ocr = {w: n for w, n in ocr_w.items() if all(ord(c) < 128 for c in w)}
+    ascii_recovered = (sum(min(ascii_ocr[w], got_w.get(w, 0)) for w in ascii_ocr)
+                       / max(1, sum(ascii_ocr.values())))
     print(f"  2. text     OCR {ocr_words} words -> extracted {got_words}   "
           f"round-trip recovery {recovered:.1%} "
           f"({'PASS' if recovered >= 0.99 else 'FAIL'}, milestone says >=99%)")
-    print(f"     (order-sensitive {sequence:.1%} - reference only; pdftotext rebuilds "
-          f"order from geometry, so this is a layout number, not a write-side one)")
+    # Where the missing words went. Two causes behave completely differently: a word
+    # swallowed by its neighbour is a spacing problem, a word with a non-Latin-1
+    # character in it is a font problem, and lumping them together hides both.
+    merged = sum(n for w, n in missing.items() if any(w in e and e != w for e in got_w))
+    nonascii = sum(n for w, n in missing.items() if any(ord(c) > 127 for c in w))
+    print(f"        of the {missing_n} lost: {merged} merged into a neighbour, "
+          f"{nonascii} carry a non-Latin-1 character, "
+          f"{missing_n - merged - nonascii} other")
+    print(f"        ASCII-only words: {ascii_recovered:.1%} recovered")
 
     # 3 - split in two, which is the decision of 2026-09-19. The widest box comes
     # from tokens the detector emitted with no space in them ("Theseresultsdemo");
@@ -126,8 +139,22 @@ def main():
         print("  3a. write-side boxes FAIL - nothing extracted")
 
     print(f"  4. single layer: {'PASS' if got_words < ocr_words * 1.5 else 'FAIL'} (a stacked layer would roughly double)")
-    print(f"  5. visual: PASS by construction (image drawn once, text uses 3 Tr); "
-          f"size {out.stat().st_size / 1024:.0f}KB vs jpeg {jpg.stat().st_size / 1024:.0f}KB")
+    # 5 - measured rather than claimed. The page image goes in as a DCTDecode stream
+    # with no re-encoding, so pulling it back out and comparing the bytes shows
+    # whether anything visible was added; render mode 3 only asserts it.
+    if not shutil.which("pdfimages"):
+        visual = "not checked - pdfimages missing"
+    else:
+        for stale in work.glob("img*"):
+            stale.unlink()
+        subprocess.run(["pdfimages", "-j", str(out), str(work / "img")], check=True)
+        imgs = sorted(work.glob("img*.jpg"))
+        visual = (f"PASS - embedded image byte-identical to the page that went in "
+                  f"({jpg.stat().st_size} B)"
+                  if imgs and imgs[0].read_bytes() == jpg.read_bytes()
+                  else f"FAIL - the embedded image changed ({len(imgs)} extracted, "
+                       f"{imgs[0].stat().st_size if imgs else 0} B vs {jpg.stat().st_size} B)")
+    print(f"  5. visual  {visual}")
 
     # 6 - geometric, replacing the order criterion that was judged invalid. Compare
     # the boxes the reader reports against the ones the writer says it placed. Word

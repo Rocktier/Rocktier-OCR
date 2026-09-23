@@ -92,6 +92,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // reader's geometry against this rather than against the input, so criterion 6
     // measures the write side instead of the detector.
     let mut placed: Vec<serde_json::Value> = Vec::new();
+    // (y0, y1, right edge) of what has been drawn, used to nudge words apart.
+    let mut extents: Vec<(f64, f64, f64)> = Vec::new();
 
     for block in &blocks {
         let text = block["text"].as_str().unwrap_or("");
@@ -125,22 +127,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // proportionally to the words' real advances, then scaled as a whole so the
         // line ends exactly at the right edge of the box. Positions come from the
         // cumulative sum, never from an accumulated estimate, so nothing drifts.
-        let units: f64 = words.iter().map(|w| word_units(w)).sum::<f64>()
-            + (words.len().saturating_sub(1)) as f64 * char_width(' ');
-        let natural = units / 1000.0 * size;
-        let scale = if natural > 0.01 { _width / natural } else { 1.0 };
-        // Tz squeezes or stretches the glyphs so each word's rendered width equals the
-        // share of the line it actually occupies. The font size stays at the line
-        // height, which keeps the hit-boxes the right height as well as the right width.
-        content.push_str(&format!("{:.3} Tz\n", scale * 100.0));
+        // Reserve the gaps between words first, then hand the width that is left to
+        // the words themselves. The reader breaks words only when the gap exceeds
+        // roughly a tenth of the font size, so a line squeezed to fit its box used to
+        // lose its gaps and came back with neighbours fused - "Chordedit" and "Lu"
+        // returned as "ChordeditLu". Reserving first keeps every gap above that
+        // threshold, and unlike pushing words apart, which walks a whole line off the
+        // page whenever a two-column box reaches across the gutter, this cannot
+        // overflow: the words simply take what is left.
+        let min_gap = 0.15 * size;
+        let reserved = (words.len().saturating_sub(1)) as f64 * min_gap;
+        let avail = _width - reserved;
+        let units: f64 = words.iter().map(|w| word_units(w)).sum::<f64>();
+        // Used only when the box is too narrow to hold the gaps at all.
+        let squeeze = if units > 0.01 { _width / (units / 1000.0 * size) } else { 1.0 };
 
+        // Only small overlaps are nudged apart. A large one means the detector put two
+        // blocks on top of each other, which is a layout error and not something to
+        // paper over: shoving a line clear of a box that reaches across the gutter
+        // pushes the whole line off the page, which is how an earlier attempt here
+        // dropped two thirds of the words on the page.
+        let max_nudge = 0.5 * size;
         let mut cursor = x0;
-        for (i, word) in words.iter().enumerate() {
-            let advance = word_units(word) / 1000.0 * size * scale;
+        for word in words.iter() {
+            let mut start = cursor;
+            for &(py0, py1, px1) in &extents {
+                if y0 < py1 - 0.01 && y1 > py0 + 0.01 {
+                    let need = px1 + min_gap - start;
+                    if need > 0.0 && need <= max_nudge {
+                        start = px1 + min_gap;
+                    }
+                }
+            }
+            let natural_w = word_units(word) / 1000.0 * size;
+            let (advance, stretch) = if avail > 0.0 && units > 0.01 {
+                let share = avail * word_units(word) / units;
+                (share, if natural_w > 0.01 { share / natural_w } else { 1.0 })
+            } else {
+                (natural_w * squeeze, squeeze)
+            };
+            // Tz makes each word render at exactly the width it was given. The font
+            // size stays at the line height, so the hit-box keeps the right height.
+            content.push_str(&format!("{:.3} Tz\n", stretch * 100.0));
             placed.push(serde_json::json!({
                 "text": *word,
-                "x0": cursor,
-                "x1": cursor + advance,
+                "x0": start,
+                "x1": start + advance,
                 // Top-left origin, the same one pdftotext -bbox reports in, so the
                 // checker can subtract the two without flipping anything.
                 "y0": y0,
@@ -150,11 +182,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .replace('\\', r"\\")
                 .replace('(', r"\(")
                 .replace(')', r"\)");
-            content.push_str(&format!("1 0 0 1 {cursor:.2} {baseline:.2} Tm\n({escaped}) Tj\n"));
-            cursor += advance;
-            if i + 1 < words.len() {
-                cursor += char_width(' ') / 1000.0 * size * scale;
-            }
+            content.push_str(&format!("1 0 0 1 {start:.2} {baseline:.2} Tm\n({escaped}) Tj\n"));
+            extents.push((y0, y1, start + advance));
+            cursor = start + advance + min_gap;
         }
         content.push('\n');
     }
