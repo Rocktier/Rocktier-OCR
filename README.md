@@ -140,6 +140,12 @@ worse number in a market we are not entering is not a reason to move.
 | visually unchanged | yes | 20/20 (measured: the embedded image is byte-identical) |
 | word-box deviation | median <2% of page | 0.00%, 20/20 |
 
+Confirmed by hand in a real reader (2026-09-24): the operator opened the sample in
+Edge - PDFium, the same engine this product bundles - and every space survived,
+including in a title that previously came back as REFINEMENTISINHERENTLYEDITABLE.
+The one visible defect left is non-Latin-1 characters, which Helvetica cannot carry
+and which come back as mojibake; that is a font replacement, not a geometry fix.
+
 The shortfall is 2.9 percent and it is attributable rather than mysterious: 1.4
 percent merges caused by the detector's boxes, which is the layout work item; 0.5
 percent characters Helvetica cannot carry; 0.9 percent hyphenation fragments and
