@@ -135,7 +135,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // threshold, and unlike pushing words apart, which walks a whole line off the
         // page whenever a two-column box reaches across the gutter, this cannot
         // overflow: the words simply take what is left.
-        let min_gap = 0.15 * size;
+        // The gap keeps the width a space would naturally have and is not squeezed
+        // with the words. poppler breaks words at roughly a tenth of the font size,
+        // but Preview and Acrobat want more than that: measured against real output,
+        // a gap of 0.15 em left a title reading "REFINEMENTISINHERENTLYEDITABLE" in
+        // the viewer even though pdftotext saw every space. So the words absorb the
+        // squeeze and the gaps do not.
+        let min_gap = char_width(' ') / 1000.0 * size;
         let reserved = (words.len().saturating_sub(1)) as f64 * min_gap;
         let avail = _width - reserved;
         let units: f64 = words.iter().map(|w| word_units(w)).sum::<f64>();
