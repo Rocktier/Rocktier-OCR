@@ -1,21 +1,26 @@
-//! Minimal searchable-PDF writer: one page image plus an invisible text layer.
+//! Minimal searchable-PDF writer: an invisible, selectable text layer.
 //!
-//! Takes a JPEG page and PP-OCR's line boxes, and writes a PDF whose text is
-//! invisible (rendering mode 3) but selectable, positioned per word.
-//!
-//! Deliberately narrow. JPEG is embedded with /DCTDecode, so no image decoding
-//! dependency is needed; the page size is passed in rather than parsed, because
-//! the caller is the rasteriser and already knows it.
+//! Two modes, because the input decides what "keeping the document" means.
 //!
 //!     write-searchable <page.jpg> <boxes.json> <out.pdf> <width> <height> <dpi>
+//!     write-searchable --pdf <input.pdf> <pages.json> <out.pdf> <dpi>
 //!
-//! boxes.json is the array PP-OCR returns: [{"box": [[x,y],...], "text": "..."}].
-//! Word placement is estimated from word length rather than glyph metrics: the
-//! text is invisible, so all that matters is where each word's hit-box lands.
+//! The first builds a one-page PDF around a scanned image - what a screenshot
+//! needs. The second opens an existing PDF and appends a text layer to every
+//! page, which is the only honest way to handle a real document: pages, images,
+//! metadata and bookmarks were never thrown away, so they cannot be lost. It is
+//! also where "replace the text layer" has to start, since the old one is still
+//! in front of us rather than already discarded.
+//!
+//! pages.json is an array with one entry per page, each the array PP-OCR returns:
+//! [{"box": [[x,y],...], "text": "...", "words": [{"box": ..., "text": ...}]}].
+//! `words` - the per-character boxes grouped on the recogniser's own spaces - is
+//! preferred whenever it is present; without it the writer has to estimate.
 
 use std::fs;
 
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::content::{Content, Operation};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 
 /// Helvetica advance widths in 1/1000 em, for ASCII 32..=126.
 ///
@@ -35,59 +40,34 @@ fn char_width(ch: char) -> f64 {
     if (32..=126).contains(&c) { WIDTHS[(c - 32) as usize] } else { 500.0 }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let a: Vec<String> = std::env::args().collect();
-    if a.len() != 7 {
-        eprintln!("usage: write-searchable <page.jpg> <boxes.json> <out.pdf> <width> <height> <dpi>");
-        std::process::exit(2);
-    }
-    let (jpg, boxes_json, out) = (&a[1], &a[2], &a[3]);
-    let w: i64 = a[4].parse()?;
-    let h: i64 = a[5].parse()?;
-    let dpi: f64 = a[6].parse()?;
-    let scale = 72.0 / dpi;
-
-    let jpeg = fs::read(jpg)?;
-    let blocks: Vec<serde_json::Value> = serde_json::from_str(&fs::read_to_string(boxes_json)?)?;
-
-    // Page geometry in points.
-    let pw = w as f64 * scale;
-    let ph = h as f64 * scale;
-
-    let mut doc = Document::with_version("1.5");
-    let pages_id = doc.new_object_id();
-    let image_id = doc.add_object(Stream::new(
-        dictionary! {
-            "Type" => "XObject",
-            "Subtype" => "Image",
-            "Width" => w,
-            "Height" => h,
-            "ColorSpace" => "DeviceRGB",
-            "BitsPerComponent" => 8,
-            "Filter" => "DCTDecode",
-        },
-        jpeg,
-    ));
-    // Every code unit that will be drawn, collected first because the font has to
-    // describe all of them up front.
+/// Every code unit the text will use. The font has to describe all of them up
+/// front, so this is collected before anything is drawn.
+fn collect_cids(pages: &[Vec<serde_json::Value>]) -> Vec<u16> {
     let mut cids: Vec<u16> = Vec::new();
-    for block in &blocks {
-        if let Some(text) = block["text"].as_str() {
-            for word in text.split_whitespace() {
-                cids.extend(word.encode_utf16());
+    for blocks in pages {
+        for block in blocks {
+            if let Some(text) = block["text"].as_str() {
+                for word in text.split_whitespace() {
+                    cids.extend(word.encode_utf16());
+                }
             }
         }
     }
     cids.sort_unstable();
     cids.dedup();
+    cids
+}
 
-    // Nothing is ever painted - the text goes out in rendering mode 3 - so the font
-    // only has to be right about two things: how to map a code back to Unicode, and
-    // how wide each character is. Helvetica with WinAnsiEncoding got the widths right
-    // but cannot hold a character outside Latin-1: an arrow went out as its UTF-8
-    // bytes and came back as "a-t-'", one byte read as a character at a time. A Type0
-    // font over Identity-H with an explicit ToUnicode map carries whatever the
-    // detector returns.
+/// The font the invisible text is drawn with.
+///
+/// Nothing is ever painted - the text goes out in rendering mode 3 - so the font
+/// only has to be right about two things: how a code maps back to Unicode, and
+/// how wide each character is. Helvetica with WinAnsiEncoding got the widths right
+/// but cannot hold a character outside Latin-1: an arrow went out as its UTF-8
+/// bytes and came back as "a-t-'", one byte read as a character at a time. A Type0
+/// font over Identity-H with an explicit ToUnicode map carries whatever the
+/// detector returns.
+fn add_font(doc: &mut Document, cids: &[u16]) -> ObjectId {
     let mut tounicode = String::from(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
@@ -95,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
          1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
     );
     tounicode.push_str(&format!("{} beginbfchar\n", cids.len()));
-    for c in &cids {
+    for c in cids {
         tounicode.push_str(&format!("<{c:04X}> <{c:04X}>\n"));
     }
     tounicode.push_str(
@@ -141,29 +121,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "W" => Object::Array(widths),
         "FontDescriptor" => descriptor_id,
     });
-    let font_id = doc.add_object(dictionary! {
+    doc.add_object(dictionary! {
         "Type" => "Font",
         "Subtype" => "Type0",
         "BaseFont" => "RocktierHiddenText",
         "Encoding" => "Identity-H",
         "DescendantFonts" => vec![cid_font_id.into()],
         "ToUnicode" => tounicode_id,
-    });
+    })
+}
 
-    let mut content = String::new();
-    // The scan itself, drawn at full page size.
-    content.push_str(&format!(
-        "q\n{pw:.2} 0 0 {ph:.2} 0 0 cm\n/Im0 Do\nQ\nBT\n3 Tr\n"
-    ));
-
-    // The boxes this writer actually places, in order. The checker compares the
-    // reader's geometry against this rather than against the input, so criterion 6
-    // measures the write side instead of the detector.
+/// The text layer for one page: the drawing operations, and where every word went.
+///
+/// The second return value is the sidecar. Criterion 6 is a geometric comparison
+/// and cannot be made without knowing where the words actually landed, so this is
+/// recorded as they are placed rather than reconstructed later.
+fn text_layer(
+    blocks: &[serde_json::Value],
+    scale: f64,
+    ph: f64,
+    page: usize,
+) -> Result<(String, Vec<serde_json::Value>), Box<dyn std::error::Error>> {
+    let mut content = String::from("BT\n3 Tr\n");
     let mut placed: Vec<serde_json::Value> = Vec::new();
     // (y0, y1, right edge) of what has been drawn, used to nudge words apart.
     let mut extents: Vec<(f64, f64, f64)> = Vec::new();
 
-    for block in &blocks {
+    for block in blocks {
         let text = block["text"].as_str().unwrap_or("");
         if text.is_empty() {
             continue;
@@ -180,18 +164,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let baseline = ph - y1;
         let size = (y1 - y0).max(1.0);
 
-        // Split into words and spread them across the line box by length, so a
-        // selection lands on a word instead of swallowing the whole line.
         let words: Vec<&str> = text.split_whitespace().collect();
         if words.is_empty() {
             continue;
         }
 
-        // Prefer the word boxes the engine measured. They carry each word's real width
-        // and the real gap that follows it, so nothing has to be estimated. Everything
-        // after this branch is the estimate used when they are absent - spreading words
-        // across the line's box by length - and estimating is what let neighbours come
-        // back fused, "Chordedit" and "Lu" as one word.
+        // Prefer the word boxes the engine measured. They carry each word's real
+        // width and the real gap that follows it, so nothing has to be estimated.
+        // Everything after this branch is the estimate used when they are absent -
+        // spreading words across the line's box by length - and estimating is what
+        // let neighbours come back fused, "Chordedit" and "Lu" as one word.
         if let Some(measured) = block["words"].as_array() {
             if !measured.is_empty() {
                 for w in measured {
@@ -206,14 +188,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Some(p) => p,
                         None => continue,
                     };
-                    let wxs: Vec<f64> = wp
-                        .iter()
-                        .map(|p| p[0].as_f64().unwrap_or(0.0) * scale)
-                        .collect();
-                    let wys: Vec<f64> = wp
-                        .iter()
-                        .map(|p| p[1].as_f64().unwrap_or(0.0) * scale)
-                        .collect();
+                    let wxs: Vec<f64> =
+                        wp.iter().map(|p| p[0].as_f64().unwrap_or(0.0) * scale).collect();
+                    let wys: Vec<f64> =
+                        wp.iter().map(|p| p[1].as_f64().unwrap_or(0.0) * scale).collect();
                     let wx0 = wxs.iter().cloned().fold(f64::MAX, f64::min);
                     let wx1 = wxs.iter().cloned().fold(f64::MIN, f64::max);
                     let wy0 = wys.iter().cloned().fold(f64::MAX, f64::min);
@@ -224,15 +202,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let natural = word_units(wt) / 1000.0 * wsize;
                     let stretch = if natural > 0.01 { (wx1 - wx0) / natural } else { 1.0 };
 
-                    // Only a small overlap is nudged apart. A large one is a layout
-                    // error, and shoving a word clear of it walks the rest of the line
-                    // off the page - which is how an earlier attempt here lost two
-                    // thirds of the words on a page.
-                    // The measured width is kept, but a measured gap that is too small
-                    // is not: the reader needs roughly a tenth of the font size to see
-                    // a break, and viewers want more. Nudging is capped because a
-                    // genuinely large overlap is a layout error, and shoving a word
-                    // clear of one walks the rest of the line off the page.
+                    // The measured width is kept, but a measured gap that is too
+                    // small is not: the reader needs roughly a tenth of the font
+                    // size to see a break, and viewers want more. Nudging is capped
+                    // because a genuinely large overlap is a layout error, and
+                    // shoving a word clear of one walks the rest of the line off
+                    // the page.
                     let min_gap = char_width(' ') / 1000.0 * wsize;
                     let max_nudge = 1.2 * wsize;
                     let mut start = wx0;
@@ -248,11 +223,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     content.push_str(&format!("/F0 {wsize:.2} Tf\n{:.3} Tz\n", stretch * 100.0));
                     placed.push(serde_json::json!({
+                        "page": page,
                         "text": wt,
                         "x0": start,
                         "x1": end,
-                        // Top-left origin, the same one pdftotext -bbox reports in, so
-                        // the checker can subtract the two without flipping anything.
+                        // Top-left origin, the one pdftotext -bbox reports in, so
+                        // the checker can subtract the two without flipping.
                         "y0": wy0,
                         "y1": wy1,
                     }));
@@ -269,27 +245,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let _width = x1 - x0;
         content.push_str(&format!("/F0 {size:.2} Tf\n1 0 0 1 {x0:.2} {baseline:.2} Tm\n"));
-        // Td is relative to the current line matrix, so each word advances by the
-        // previous word's estimated width. Without this every word lands on top of
-        // the first one, and the whole line selects as a single block.
-        // Split the line box into words the way the reader will read it back:
-        // proportionally to the words' real advances, then scaled as a whole so the
-        // line ends exactly at the right edge of the box. Positions come from the
-        // cumulative sum, never from an accumulated estimate, so nothing drifts.
-        // Reserve the gaps between words first, then hand the width that is left to
-        // the words themselves. The reader breaks words only when the gap exceeds
-        // roughly a tenth of the font size, so a line squeezed to fit its box used to
-        // lose its gaps and came back with neighbours fused - "Chordedit" and "Lu"
-        // returned as "ChordeditLu". Reserving first keeps every gap above that
-        // threshold, and unlike pushing words apart, which walks a whole line off the
-        // page whenever a two-column box reaches across the gutter, this cannot
-        // overflow: the words simply take what is left.
         // The gap keeps the width a space would naturally have and is not squeezed
         // with the words. poppler breaks words at roughly a tenth of the font size,
-        // but Preview and Acrobat want more than that: measured against real output,
-        // a gap of 0.15 em left a title reading "REFINEMENTISINHERENTLYEDITABLE" in
-        // the viewer even though pdftotext saw every space. So the words absorb the
-        // squeeze and the gaps do not.
+        // but the readers people open PDFs in want more: at 0.15 em a title came
+        // back as "REFINEMENTISINHERENTLYEDITABLE" in Edge while pdftotext saw
+        // every space. So the words absorb the squeeze and the gaps do not.
         let min_gap = char_width(' ') / 1000.0 * size;
         let reserved = (words.len().saturating_sub(1)) as f64 * min_gap;
         let avail = _width - reserved;
@@ -297,11 +257,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Used only when the box is too narrow to hold the gaps at all.
         let squeeze = if units > 0.01 { _width / (units / 1000.0 * size) } else { 1.0 };
 
-        // Only small overlaps are nudged apart. A large one means the detector put two
-        // blocks on top of each other, which is a layout error and not something to
-        // paper over: shoving a line clear of a box that reaches across the gutter
-        // pushes the whole line off the page, which is how an earlier attempt here
-        // dropped two thirds of the words on the page.
+        // Only small overlaps are nudged apart. A large one means the detector put
+        // two blocks on top of each other, which is a layout error and not
+        // something to paper over: shoving a line clear of a box that reaches
+        // across the gutter pushes the whole line off the page.
         let max_nudge = 0.5 * size;
         let mut cursor = x0;
         for word in words.iter() {
@@ -325,27 +284,207 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // size stays at the line height, so the hit-box keeps the right height.
             content.push_str(&format!("{:.3} Tz\n", stretch * 100.0));
             placed.push(serde_json::json!({
+                "page": page,
                 "text": *word,
                 "x0": start,
                 "x1": start + advance,
-                // Top-left origin, the same one pdftotext -bbox reports in, so the
-                // checker can subtract the two without flipping anything.
                 "y0": y0,
                 "y1": y1,
             }));
             // Two-byte codes, which Identity-H reads as Unicode directly. A literal
-            // string would go out as UTF-8 bytes and be read one byte per character,
-            // which is how an arrow turned into three unrelated letters.
+            // string would go out as UTF-8 bytes and be read one byte per
+            // character, which is how an arrow turned into three letters.
             let codes: String = word.encode_utf16().map(|u| format!("{u:04X}")).collect();
-            content.push_str(&format!("1 0 0 1 {start:.2} {baseline:.2} Tm\n<{codes}> Tj\n"));            extents.push((y0, y1, start + advance));
+            content.push_str(
+                &format!("1 0 0 1 {start:.2} {baseline:.2} Tm\n<{codes}> Tj\n"));
+            extents.push((y0, y1, start + advance));
             cursor = start + advance + min_gap;
         }
         content.push('\n');
     }
     content.push_str("ET\n");
+    Ok((content, placed))
+}
 
-    // Sidecar beside the PDF. Criterion 6 is a geometric comparison, and it cannot
-    // be made without knowing where the words actually went.
+/// Make /F0 reachable from one page, leaving everything else in /Resources alone.
+fn ensure_font(doc: &mut Document, page_id: ObjectId, font_id: ObjectId) -> Result<(), Box<dyn std::error::Error>> {
+    enum Res { Ref(ObjectId), Inline(Dictionary), Missing }
+    let res = {
+        let dict = doc.get_dictionary(page_id)?;
+        match dict.get(b"Resources") {
+            Ok(Object::Reference(id)) => Res::Ref(*id),
+            Ok(Object::Dictionary(d)) => Res::Inline(d.clone()),
+            _ => Res::Missing,
+        }
+    };
+    // /Resources has to be indirect before its /Font dictionary can be edited.
+    let res_id = match res {
+        Res::Ref(id) => id,
+        Res::Inline(d) => {
+            let rid = doc.add_object(Object::Dictionary(d));
+            doc.get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)?
+                .set("Resources", Object::Reference(rid));
+            rid
+        }
+        Res::Missing => {
+            let rid = doc.add_object(Object::Dictionary(dictionary! {}));
+            doc.get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)?
+                .set("Resources", Object::Reference(rid));
+            rid
+        }
+    };
+
+    enum Fnt { Ref(ObjectId), Inline(Dictionary), Missing }
+    let fnt = {
+        let dict = doc.get_object(res_id).and_then(Object::as_dict)?;
+        match dict.get(b"Font") {
+            Ok(Object::Reference(id)) => Fnt::Ref(*id),
+            Ok(Object::Dictionary(d)) => Fnt::Inline(d.clone()),
+            _ => Fnt::Missing,
+        }
+    };
+    match fnt {
+        Fnt::Ref(fid) => {
+            doc.get_object_mut(fid)
+                .and_then(Object::as_dict_mut)?
+                .set("F0", Object::Reference(font_id));
+        }
+        Fnt::Inline(mut d) => {
+            d.set("F0", Object::Reference(font_id));
+            doc.get_object_mut(res_id)
+                .and_then(Object::as_dict_mut)?
+                .set("Font", Object::Dictionary(d));
+        }
+        Fnt::Missing => {
+            doc.get_object_mut(res_id).and_then(Object::as_dict_mut)?.set(
+                "Font",
+                Object::Dictionary(dictionary! { "F0" => Object::Reference(font_id) }),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Remove the text this page already had, keeping everything else.
+///
+/// This is what makes the result a replacement rather than a second layer. The
+/// text-showing operators are simply dropped; the images and vector work around
+/// them are untouched, so the page still looks identical. Only the operators in
+/// the page's own content stream are considered - text inside a form XObject is
+/// left alone, which is a known limit rather than an oversight.
+fn strip_text(doc: &mut Document, page_id: ObjectId) -> Result<(), Box<dyn std::error::Error>> {
+    let content = doc.get_and_decode_page_content(page_id)?;
+    let kept: Vec<Operation> = content
+        .operations
+        .into_iter()
+        .filter(|op| !matches!(op.operator.as_str(), "Tj" | "TJ" | "'" | "\""))
+        .collect();
+    let bytes = Content { operations: kept }.encode()?;
+    doc.change_page_content(page_id, bytes)?;
+    Ok(())
+}
+
+/// Height of a page in points, from its MediaBox.
+fn page_height(doc: &Document, page_id: ObjectId) -> f64 {
+    if let Ok(dict) = doc.get_dictionary(page_id) {
+        if let Ok(Object::Array(a)) = dict.get(b"MediaBox") {
+            if a.len() == 4 {
+                // MediaBox entries may be Integer or Real; as_float takes both.
+                let y0 = a[1].as_float().unwrap_or(0.0) as f64;
+                let y1 = a[3].as_float().unwrap_or(792.0) as f64;
+                let h = y1 - y0;
+                if h > 1.0 {
+                    return h;
+                }
+            }
+        }
+    }
+    792.0
+}
+
+/// Append a text layer to every page of an existing PDF.
+fn layer_on_existing(
+    input: &str,
+    pages_json: &str,
+    out: &str,
+    dpi: f64,
+    replace: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut doc = Document::load(input)?;
+    doc.decompress();
+    let pages: Vec<Vec<serde_json::Value>> =
+        serde_json::from_str(&fs::read_to_string(pages_json)?)?;
+    let scale = 72.0 / dpi;
+
+    let cids = collect_cids(&pages);
+    let font_id = add_font(&mut doc, &cids);
+
+    let ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+    let mut all_placed: Vec<serde_json::Value> = Vec::new();
+    for (i, page_id) in ids.iter().enumerate() {
+        let ph = page_height(&doc, *page_id);
+        let blocks = pages.get(i).cloned().unwrap_or_default();
+        let (content, mut placed) =
+            text_layer(&blocks, scale, ph, i + 1)?;
+        all_placed.append(&mut placed);
+        // Only a page we actually recognised gets its old text taken out. Stripping
+        // one we failed on would destroy the only text it has.
+        if replace && !blocks.is_empty() {
+            strip_text(&mut doc, *page_id)?;
+        }
+        ensure_font(&mut doc, *page_id, font_id)?;
+        doc.add_page_contents(*page_id, content.into_bytes())?;
+    }
+
+    // Sidecar beside the PDF. Criterion 6 is a geometric comparison, and it
+    // cannot be made without knowing where the words actually went.
+    fs::write(format!("{out}.boxes.json"), serde_json::to_vec(&all_placed)?)?;
+    doc.compress();
+    doc.save(out)?;
+    Ok(())
+}
+
+/// Build a one-page PDF around a scanned image.
+fn write_from_image(
+    jpg: &str,
+    boxes_json: &str,
+    out: &str,
+    w: i64,
+    h: i64,
+    dpi: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let jpeg = fs::read(jpg)?;
+    let blocks: Vec<serde_json::Value> =
+        serde_json::from_str(&fs::read_to_string(boxes_json)?)?;
+    let scale = 72.0 / dpi;
+    let pw = w as f64 * scale;
+    let ph = h as f64 * scale;
+
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let image_id = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => w,
+            "Height" => h,
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8,
+            "Filter" => "DCTDecode",
+        },
+        jpeg,
+    ));
+
+    let cids = collect_cids(&[blocks.clone()]);
+    let font_id = add_font(&mut doc, &cids);
+
+    let (layer, placed) = text_layer(&blocks, scale, ph, 1)?;
+    let mut content =
+        format!("q\n{pw:.2} 0 0 {ph:.2} 0 0 cm\n/Im0 Do\nQ\n");
+    content.push_str(&layer);
+
     fs::write(format!("{out}.boxes.json"), serde_json::to_vec(&placed)?)?;
 
     let content_id = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
@@ -375,4 +514,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     doc.compress();
     doc.save(out)?;
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let a: Vec<String> = std::env::args().collect();
+    if a.len() > 1 && a[1] == "--pdf" {
+        if a.len() != 6 && a.len() != 7 {
+            eprintln!("usage: write-searchable --pdf <input.pdf> <pages.json> <out.pdf> <dpi> [replace]");
+            std::process::exit(2);
+        }
+        let dpi: f64 = a[5].parse()?;
+        let replace = a.get(6).map(|s| s == "replace").unwrap_or(false);
+        return layer_on_existing(&a[2], &a[3], &a[4], dpi, replace);
+    }
+    if a.len() != 7 {
+        eprintln!("usage: write-searchable <page.jpg> <boxes.json> <out.pdf> <width> <height> <dpi>");
+        eprintln!("       write-searchable --pdf <input.pdf> <pages.json> <out.pdf> <dpi>");
+        std::process::exit(2);
+    }
+    let w: i64 = a[4].parse()?;
+    let h: i64 = a[5].parse()?;
+    let dpi: f64 = a[6].parse()?;
+    write_from_image(&a[1], &a[2], &a[3], w, h, dpi)
 }
