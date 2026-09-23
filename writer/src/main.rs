@@ -68,18 +68,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         jpeg,
     ));
+    // Every code unit that will be drawn, collected first because the font has to
+    // describe all of them up front.
+    let mut cids: Vec<u16> = Vec::new();
+    for block in &blocks {
+        if let Some(text) = block["text"].as_str() {
+            for word in text.split_whitespace() {
+                cids.extend(word.encode_utf16());
+            }
+        }
+    }
+    cids.sort_unstable();
+    cids.dedup();
+
+    // Nothing is ever painted - the text goes out in rendering mode 3 - so the font
+    // only has to be right about two things: how to map a code back to Unicode, and
+    // how wide each character is. Helvetica with WinAnsiEncoding got the widths right
+    // but cannot hold a character outside Latin-1: an arrow went out as its UTF-8
+    // bytes and came back as "a-t-'", one byte read as a character at a time. A Type0
+    // font over Identity-H with an explicit ToUnicode map carries whatever the
+    // detector returns.
+    let mut tounicode = String::from(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
+         /CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+    );
+    tounicode.push_str(&format!("{} beginbfchar\n", cids.len()));
+    for c in &cids {
+        tounicode.push_str(&format!("<{c:04X}> <{c:04X}>\n"));
+    }
+    tounicode.push_str(
+        "endbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
+    );
+    let tounicode_id = doc.add_object(Stream::new(dictionary! {}, tounicode.into_bytes()));
+
+    // The widths this writer advances by, so words cannot overlap into each other.
+    // 1/1000 em, which is what /W is defined in.
+    let widths: Vec<Object> = cids
+        .iter()
+        .flat_map(|c| {
+            let w = match char::from_u32(*c as u32) {
+                Some(ch) => char_width(ch) as i64,
+                None => 500,
+            };
+            [Object::Integer(*c as i64), Object::Array(vec![Object::Integer(w)])]
+        })
+        .collect();
+
+    let descriptor_id = doc.add_object(dictionary! {
+        "Type" => "FontDescriptor",
+        "FontName" => "RocktierHiddenText",
+        "Flags" => 4,
+        "FontBBox" => vec![0.into(), (-200).into(), 1000.into(), 1000.into()],
+        "ItalicAngle" => 0,
+        "Ascent" => 800,
+        "Descent" => -200,
+        "CapHeight" => 700,
+        "StemV" => 80,
+    });
+    // No /FontFile2: nothing is ever rasterised from this font, only mapped back out.
+    let cid_font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "CIDFontType2",
+        "BaseFont" => "RocktierHiddenText",
+        "CIDSystemInfo" => dictionary! {
+            "Registry" => "Adobe",
+            "Ordering" => "Identity",
+            "Supplement" => 0,
+        },
+        "DW" => 1000,
+        "W" => Object::Array(widths),
+        "FontDescriptor" => descriptor_id,
+    });
     let font_id = doc.add_object(dictionary! {
         "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => "Helvetica",
-        "Encoding" => "WinAnsiEncoding",
-        // Declaring the widths makes the reader compute the same positions this
-        // writer advances by, so words cannot overlap into each other.
-        "FirstChar" => 32,
-        "LastChar" => 126,
-        // 1/1000 em, which is what /Widths is defined in - dividing by 1000 again
-        // collapses every glyph box to zero width.
-        "Widths" => Object::Array(WIDTHS.iter().map(|w| Object::Integer(*w as i64)).collect()),
+        "Subtype" => "Type0",
+        "BaseFont" => "RocktierHiddenText",
+        "Encoding" => "Identity-H",
+        "DescendantFonts" => vec![cid_font_id.into()],
+        "ToUnicode" => tounicode_id,
     });
 
     let mut content = String::new();
@@ -184,12 +252,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "y0": y0,
                 "y1": y1,
             }));
-            let escaped = word
-                .replace('\\', r"\\")
-                .replace('(', r"\(")
-                .replace(')', r"\)");
-            content.push_str(&format!("1 0 0 1 {start:.2} {baseline:.2} Tm\n({escaped}) Tj\n"));
-            extents.push((y0, y1, start + advance));
+            // Two-byte codes, which Identity-H reads as Unicode directly. A literal
+            // string would go out as UTF-8 bytes and be read one byte per character,
+            // which is how an arrow turned into three unrelated letters.
+            let codes: String = word.encode_utf16().map(|u| format!("{u:04X}")).collect();
+            content.push_str(&format!("1 0 0 1 {start:.2} {baseline:.2} Tm\n<{codes}> Tj\n"));            extents.push((y0, y1, start + advance));
             cursor = start + advance + min_gap;
         }
         content.push('\n');
