@@ -130,6 +130,22 @@ worse number in a market we are not entering is not a reason to move.
 | **reading order** | ⚠️ **partial** — gutter reordering is in and worth +12.5 points (71% against reading-order truth), but full-width blocks below the columns are still hoisted to the front and three-column pages need more than one split |
 | Column/layout handling | ⚠️ not started — likely PP-Structure (Apache-2.0) |
 
+### Measured: the write side (2026-09-23, 20 English documents)
+
+| criterion | threshold | measured |
+|---|---|---|
+| text round trip | >=99% | **96.7%** — not reached |
+| word boxes (write side) | median >4pt | 27.8pt, 20/20 |
+| one text layer | yes | 20/20 |
+| visually unchanged | yes | 20/20 (measured: the embedded image is byte-identical) |
+| word-box deviation | median <2% of page | 0.00%, 20/20 |
+
+The shortfall is 2.9 percent and it is attributable rather than mysterious: 1.4
+percent merges caused by the detector's boxes, which is the layout work item; 0.5
+percent characters Helvetica cannot carry; 0.9 percent hyphenation fragments and
+tokens the detector emitted without spaces. Fixing every merge would still leave
+98.6, so **99 percent is not reachable from the write side alone**.
+
 ---
 
 ## Reference only: the Chinese baseline (93.7%)
