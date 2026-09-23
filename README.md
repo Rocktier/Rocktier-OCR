@@ -134,7 +134,7 @@ worse number in a market we are not entering is not a reason to move.
 
 | criterion | threshold | measured |
 |---|---|---|
-| text round trip | >=99% | **96.7%** — not reached |
+| text round trip | >=99% | **97.3%** — not reached |
 | word boxes (write side) | median >4pt | 27.8pt, 20/20 |
 | one text layer | yes | 20/20 |
 | visually unchanged | yes | 20/20 (measured: the embedded image is byte-identical) |
@@ -143,8 +143,12 @@ worse number in a market we are not entering is not a reason to move.
 Confirmed by hand in a real reader (2026-09-24): the operator opened the sample in
 Edge - PDFium, the same engine this product bundles - and every space survived,
 including in a title that previously came back as REFINEMENTISINHERENTLYEDITABLE.
-The one visible defect left is non-Latin-1 characters, which Helvetica cannot carry
-and which come back as mojibake; that is a font replacement, not a geometry fix.
+Non-Latin-1 characters no longer come back as mojibake either. Helvetica with
+WinAnsiEncoding is single-byte, so an arrow was read as its three UTF-8 bytes, one
+character each. The font is now Type0 over Identity-H with an explicit ToUnicode map,
+carrying whatever the detector returns - including CJK, should that ever matter.
+Widths are untouched, and rebuilding the old font and re-running the corpus gives
+identical placement, so only the text fidelity moved.
 
 The shortfall is 2.9 percent and it is attributable rather than mysterious: 1.4
 percent merges caused by the detector's boxes, which is the layout work item; 0.5
