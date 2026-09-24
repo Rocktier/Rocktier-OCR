@@ -1,4 +1,11 @@
-//! The two commands the UI talks to: process a document, cancel it.
+//! The commands the UI talks to.
+//!
+//! Recognition and output are separate steps, because they are separate
+//! questions: "what does this page say" is answered once, and "what shall I
+//! do with the words" can then be answered three times over - a searchable
+//! PDF, a TXT file, or the clipboard - without paying for recognition again.
+//! So converting a document fills the state with a finished job, and each
+//! output command works from that job.
 //!
 //! Two inputs are accepted. A PDF keeps its own identity and gains a text
 //! layer, page by page, skipping pages that already have text. An image has no
@@ -13,9 +20,24 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
+/// A document that has been read: what each page says, and where it came from.
+#[derive(Clone)]
+pub struct Job {
+    pub input: String,
+    pub is_pdf: bool,
+    pub dpi: f64,
+    /// Recognised blocks per page, empty for pages that already carried text.
+    pub blocks: Vec<serde_json::Value>,
+    /// Text per page: the document's own words where it had them, the
+    /// recognised lines where it did not.
+    pub page_text: Vec<String>,
+}
+
 pub struct AppState {
     pub cancel: Arc<AtomicBool>,
     pub pipeline: Arc<Mutex<Option<Pipeline>>>,
+    /// The last finished conversion, which every output is drawn from.
+    pub last: Arc<Mutex<Option<Job>>>,
 }
 
 impl Default for AppState {
@@ -23,6 +45,7 @@ impl Default for AppState {
         Self {
             cancel: Arc::new(AtomicBool::new(false)),
             pipeline: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -40,11 +63,18 @@ pub struct Summary {
     pages_ocr: usize,
     pages_skipped: usize,
     lines: usize,
-    output: String,
-    /// "pdf" or "image" - the frontend says what it made from each.
+    /// "pdf" or "image" - the frontend says what it was given.
     kind: String,
     /// Every page already carried a text layer: there was nothing to do.
     already_searchable: bool,
+}
+
+#[derive(Serialize)]
+pub struct TextResult {
+    text: String,
+    pages: usize,
+    lines: usize,
+    chars: usize,
 }
 
 fn with_pipeline<F, T>(
@@ -91,23 +121,30 @@ fn blocks_json(lines: &[ocr_engine::OcrLine]) -> serde_json::Value {
         .collect::<Vec<_>>())
 }
 
+fn page_separator(n: usize) -> String {
+    format!("\n\n--- Page {n} ---\n\n")
+}
+
+/// Read a document and remember what it said. Produces nothing by itself -
+/// the three output commands do that, from what this one leaves behind.
 #[tauri::command(async)]
 pub async fn ocr_process(
     app: AppHandle,
     state: State<'_, AppState>,
     input: String,
-    output: String,
     dpi: Option<f64>,
 ) -> Result<Summary, String> {
     let dpi = dpi.unwrap_or(200.0);
     state.cancel.store(false, Ordering::SeqCst);
     let cancel = state.cancel.clone();
     let pipeline = state.pipeline.clone();
+    let last = state.last.clone();
 
     let app_for_pdf = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Summary, String> {
         let is_pdf = input.to_lowercase().ends_with(".pdf");
-        let mut pages: Vec<serde_json::Value> = Vec::new();
+        let mut blocks: Vec<serde_json::Value> = Vec::new();
+        let mut page_text: Vec<String> = Vec::new();
         let (mut ocr_pages, mut skipped, mut line_count) = (0usize, 0usize, 0usize);
         let total: usize;
 
@@ -128,8 +165,12 @@ pub async fn ocr_process(
                 let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
                 let text_chars = pdf::page_text_len(&page);
                 if text_chars >= 10 {
+                    // Already readable: keep the document's own words rather
+                    // than asking the recogniser to guess at them again.
                     skipped += 1;
-                    pages.push(serde_json::json!([]));
+                    let own = page.text().map_err(|e| e.to_string())?.all();
+                    blocks.push(serde_json::json!([]));
+                    page_text.push(own);
                     let _ = app.emit(
                         "ocr-progress",
                         Progress {
@@ -148,7 +189,8 @@ pub async fn ocr_process(
                 })?;
                 line_count += lines.len();
                 ocr_pages += 1;
-                pages.push(blocks_json(&lines));
+                page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+                blocks.push(blocks_json(&lines));
             }
         } else {
             total = 1;
@@ -159,136 +201,120 @@ pub async fn ocr_process(
             })?;
             line_count += lines.len();
             ocr_pages += 1;
-            pages.push(blocks_json(&lines));
+            page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+            blocks.push(blocks_json(&lines));
         }
 
-        let _ = app.emit("ocr-progress", Progress { page: total, total, phase: "write".into() });
-        let tmp = std::env::temp_dir().join("rocktier-ocr-pages.json");
-        // A PDF takes one entry per page; the single-image path takes the flat
-        // block array, which is the same shape that mode was written for.
-        let payload = if is_pdf {
-            serde_json::to_vec(&pages)
-        } else {
-            serde_json::to_vec(pages.first().unwrap_or(&serde_json::json!([])))
-        }
-        .map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
+        let _ = app.emit("ocr-progress", Progress { page: total, total, phase: "done".into() });
+        *last.lock().map_err(|e| e.to_string())? = Some(Job {
+            input: input.clone(),
+            is_pdf,
+            dpi,
+            blocks,
+            page_text,
+        });
 
-        if is_pdf {
-            write_searchable::layer_on_existing(&input, tmp.to_str().unwrap(), &output, dpi, true)
-                .map_err(|e| e.to_string())?;
-        } else {
-            let img = image::open(&input).map_err(|e| e.to_string())?;
-            let (w, h) = (img.width() as i64, img.height() as i64);
-            // The page is embedded as JPEG, so any other format is transcoded
-            // first - a PNG's bytes declared as DCTDecode is a broken picture.
-            let page = if input.to_lowercase().ends_with(".jpg") || input.to_lowercase().ends_with(".jpeg") {
-                input.clone()
-            } else {
-                let dst = std::env::temp_dir().join("rocktier-ocr-page.jpg");
-                img.write_to(&mut std::fs::File::create(&dst).map_err(|e| e.to_string())?, image::ImageFormat::Jpeg)
-                    .map_err(|e| e.to_string())?;
-                dst.to_string_lossy().to_string()
-            };
-            write_searchable::write_from_image(&page, tmp.to_str().unwrap(), &output, w, h, dpi)
-                .map_err(|e| e.to_string())?;
-        }
-
-        let kind = if is_pdf { "pdf".to_string() } else { "image".to_string() };
         Ok(Summary {
             pages_total: total,
             pages_ocr: ocr_pages,
             pages_skipped: skipped,
             lines: line_count,
+            kind: if is_pdf { "pdf".to_string() } else { "image".to_string() },
             already_searchable: ocr_pages == 0 && skipped > 0,
-            output: output.clone(),
-            kind,
         })
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// The text of a document, page by page. Pages that already carry text give
-/// up theirs directly - re-recognising a born-digital page would only add
-/// noise - and pages that do not are recognised first. Used by the TXT export
-/// and by "copy everything".
-#[derive(Serialize)]
-pub struct TextResult {
-    text: String,
-    pages: usize,
-    lines: usize,
-    chars: usize,
-}
-
-fn page_separator(n: usize) -> String {
-    format!("\n\n--- Page {n} ---\n\n")
-}
-
+/// Write the converted document as a searchable PDF.
 #[tauri::command(async)]
-pub async fn extract_text(
-    app: AppHandle,
+pub async fn ocr_export_pdf(
     state: State<'_, AppState>,
-    input: String,
-    output: Option<String>,
-) -> Result<TextResult, String> {
-    let pipeline = state.pipeline.clone();
-    let app_for_pdf = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<TextResult, String> {
-        let is_pdf = input.to_lowercase().ends_with(".pdf");
-        let mut text = String::new();
-        let (mut pages, mut lines) = (0usize, 0usize);
+    output: String,
+) -> Result<serde_json::Value, String> {
+    let job = state
+        .last
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "还没有转换完成的文档。".to_string())?;
 
-        if is_pdf {
-            let pdfium = pdf::init_pdfium(&app_for_pdf).map_err(|e| e.to_string())?;
-            let doc = pdfium
-                .load_pdf_from_file(Path::new(&input), None)
-                .map_err(|e| e.to_string())?;
-            let total = doc.pages().len() as usize;
-            for i in 0..total {
-                let _ = app.emit(
-                    "ocr-progress",
-                    Progress { page: i + 1, total, phase: "text".into() },
-                );
-                let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
-                let page_text = if pdf::page_text_len(&page) >= 10 {
-                    // Born-digital: the document already knows its words.
-                    page.text().map_err(|e| e.to_string())?.all()
-                } else {
-                    let img = pdf::render_page(&page, 200.0).map_err(|e| e.to_string())?;
-                    let found = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
-                        pipe.run(&img).map_err(|e| e.to_string())
-                    })?;
-                    found
-                        .iter()
-                        .map(|l| l.text.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
-                lines += page_text.lines().count().max(0);
-                pages += 1;
-                text.push_str(&page_separator(i + 1));
-                text.push_str(page_text.trim());
-            }
+    tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let tmp = std::env::temp_dir().join("rocktier-ocr-pages.json");
+        // A PDF takes one entry per page; the single-image path takes the flat
+        // block array, which is the same shape that mode was written for.
+        let payload = if job.is_pdf {
+            serde_json::to_vec(&job.blocks)
         } else {
-            let _ = app.emit(
-                "ocr-progress",
-                Progress { page: 1, total: 1, phase: "text".into() },
-            );
-            let img = image::open(&input).map_err(|e| format!("无法打开图片：{e}"))?;
-            let found = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
-                pipe.run(&img).map_err(|e| e.to_string())
-            })?;
-            lines = found.len();
-            pages = 1;
-            text.push_str(&found.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+            serde_json::to_vec(job.blocks.first().unwrap_or(&serde_json::json!([])))
+        }
+        .map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
+
+        if job.is_pdf {
+            write_searchable::layer_on_existing(&job.input, tmp.to_str().unwrap(), &output, job.dpi, true)
+                .map_err(|e| e.to_string())?;
+        } else {
+            let img = image::open(&job.input).map_err(|e| e.to_string())?;
+            let (w, h) = (img.width() as i64, img.height() as i64);
+            // The page is embedded as JPEG, so any other format is transcoded
+            // first - a PNG's bytes declared as DCTDecode is a broken picture.
+            let page = if job.input.to_lowercase().ends_with(".jpg")
+                || job.input.to_lowercase().ends_with(".jpeg")
+            {
+                job.input.clone()
+            } else {
+                let dst = std::env::temp_dir().join("rocktier-ocr-page.jpg");
+                img.write_to(
+                    &mut std::fs::File::create(&dst).map_err(|e| e.to_string())?,
+                    image::ImageFormat::Jpeg,
+                )
+                .map_err(|e| e.to_string())?;
+                dst.to_string_lossy().to_string()
+            };
+            write_searchable::write_from_image(&page, tmp.to_str().unwrap(), &output, w, h, job.dpi)
+                .map_err(|e| e.to_string())?;
         }
 
+        Ok(serde_json::json!({ "output": output, "pages": job.page_text.len() }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The converted document's text, written to a TXT file when a path is given.
+#[tauri::command(async)]
+pub async fn ocr_export_txt(
+    state: State<'_, AppState>,
+    output: Option<String>,
+) -> Result<TextResult, String> {
+    let job = state
+        .last
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "还没有转换完成的文档。".to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<TextResult, String> {
+        let mut text = String::new();
+        let mut lines = 0usize;
+        for (i, page) in job.page_text.iter().enumerate() {
+            lines += page.lines().count().max(1);
+            if job.is_pdf {
+                text.push_str(&page_separator(i + 1));
+            }
+            text.push_str(page.trim());
+        }
         if let Some(path) = output {
             std::fs::write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
         }
-        let chars = text.chars().count();
-        Ok(TextResult { text, pages, lines, chars })
+        Ok(TextResult {
+            chars: text.chars().count(),
+            text,
+            pages: job.page_text.len(),
+            lines,
+        })
     })
     .await
     .map_err(|e| e.to_string())?

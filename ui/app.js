@@ -10,6 +10,8 @@ const { open, save } = window.__TAURI__.dialog;
 const el = (id) => document.getElementById(id);
 let inputPath = null;
 let running = false;
+// 转换完成的文档。识别只做一次，三个产物都从它出。
+let job = null;
 
 const SUPPORTED = [".pdf", ".png", ".jpg", ".jpeg"];
 function isSupported(name) {
@@ -27,8 +29,9 @@ function setRunning(on) {
   running = on;
   el("go").disabled = on || !inputPath;
   el("cancel").disabled = !on;
-  el("txt").disabled = on || !inputPath;
-  el("copy").disabled = on || !inputPath;
+  el("pdf").disabled = on || !job;
+  el("txt").disabled = on || !job;
+  el("copy").disabled = on || !job;
   el("bar-wrap").style.display = on ? "block" : "none";
   if (on) el("status").textContent = tr().preparing;
 }
@@ -36,8 +39,13 @@ function setRunning(on) {
 function setPath(p) {
   if (!p) return;
   inputPath = p;
+  job = null;
   el("path").textContent = p;
+  el("done").style.display = "none";
   el("go").disabled = running || !p;
+  el("pdf").disabled = true;
+  el("txt").disabled = true;
+  el("copy").disabled = true;
 }
 
 async function pickFile() {
@@ -110,35 +118,17 @@ listen("tauri://drag-drop", (e) => {
 
 el("go").addEventListener("click", async () => {
   if (!inputPath || running) return;
-  const stem = inputPath.replace(/\.pdf$/i, "");
-  let out;
-  try {
-    out = await save({
-      defaultPath: stem + tr().saveDefault + ".pdf",
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
-    });
-  } catch (err) {
-    log(tr().saveDialogFailed + err);
-    return;
-  }
-  if (!out) return;
   setRunning(true);
   el("done").style.display = "none";
   el("log").textContent = "";
   log(tr().startLog + inputPath);
   try {
-    const s = await invoke("ocr_process", { input: inputPath, output: out, dpi: 200 });
+    const s = await invoke("ocr_process", { input: inputPath, dpi: 200 });
+    job = s;
     el("done").style.display = "block";
-    if (s.already_searchable) {
-      el("done").innerHTML = tr().already + `<br><span class="out">${tr().output}: ${s.output}</span>`;
-      log(tr().alreadyLog);
-    } else if (s.kind === "image") {
-      el("done").innerHTML = tr().imageDone(s) + `<br><span class="out">${s.output}</span>`;
-      log(tr().finished + s.output);
-    } else {
-      el("done").innerHTML = tr().done(s) + `<br><span class="out">${s.output}</span>`;
-      log(tr().finished + s.output);
-    }
+    const text = s.already_searchable ? tr().already : tr().converted(s);
+    el("done").innerHTML = text;
+    log(tr().finished + tr().converted(s).replace(/<[^>]+>/g, ""));
     el("status").textContent = tr().statusDone;
   } catch (err) {
     const t = tr();
@@ -150,36 +140,17 @@ el("go").addEventListener("click", async () => {
   setRunning(false);
 });
 
-// 复制到剪贴板。Tauri 的 tauri:// 源在 WKWebView 里不算安全上下文，
-// navigator.clipboard 常常直接是 undefined，所以先试标准 API，
-// 不行就退回隐藏 textarea + execCommand。
+// 复制到剪贴板必须走原生插件：webview 跑在 tauri:// 源上，
+// 既不是安全上下文（navigator.clipboard 被拒），execCommand 也被拒。
 async function copyToClipboard(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return "clipboard-api";
-    } catch (err) {
-      log("剪贴板 API 失败，改用兜底：" + err);
-    }
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.top = "-1000px";
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  const ok = document.execCommand("copy");
-  document.body.removeChild(ta);
-  if (!ok) throw new Error("execCommand('copy') 被拒绝");
-  return "execCommand";
+  await invoke("plugin:clipboard-manager|write_text", { text });
 }
 
 el("cancel").addEventListener("click", () => invoke("ocr_cancel"));
 
 // 导出 TXT：原生页用自带文字，扫描页与图片走识别。
 el("txt").addEventListener("click", async () => {
-  if (!inputPath || running) return;
+  if (!job || running) return;
   let out;
   try {
     out = await save({
@@ -193,7 +164,7 @@ el("txt").addEventListener("click", async () => {
   if (!out) return;
   log(tr().startLog + inputPath);
   try {
-    const s = await invoke("extract_text", { input: inputPath, output: out });
+    const s = await invoke("ocr_export_txt", { output: out });
     el("done").style.display = "block";
     el("done").innerHTML = tr().exportDone(s) + `<br><span class="out">${out}</span>`;
     log(tr().exportDone(s));
@@ -205,16 +176,41 @@ el("txt").addEventListener("click", async () => {
 
 // 复制全文：同一份文本进剪贴板。
 el("copy").addEventListener("click", async () => {
-  if (!inputPath || running) return;
-  log(tr().startLog + inputPath);
+  if (!job || running) return;
   try {
-    const s = await invoke("extract_text", { input: inputPath });
+    const s = await invoke("ocr_export_txt", {});
     await copyToClipboard(s.text);
     log(tr().copied(s.chars));
     el("done").style.display = "block";
     el("done").innerHTML = tr().copied(s.chars);
   } catch (err) {
     log(tr().copyFailed + err);
+    el("status").textContent = tr().statusFailed;
+  }
+});
+
+// 导出可搜索 PDF：把已识别的文字层写进原文档的一份副本。
+el("pdf").addEventListener("click", async () => {
+  if (!job || running) return;
+  let out;
+  try {
+    out = await save({
+      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + tr().saveDefault + ".pdf",
+      filters: [{ name: tr().pdfName, extensions: ["pdf"] }],
+    });
+  } catch (err) {
+    log(tr().saveDialogFailed + err);
+    return;
+  }
+  if (!out) return;
+  try {
+    const r = await invoke("ocr_export_pdf", { output: out });
+    el("done").style.display = "block";
+    el("done").innerHTML = tr().pdfDone(r) + `<br><span class="out">${out}</span>`;
+    log(tr().finished + out);
+    el("status").textContent = tr().statusDone;
+  } catch (err) {
+    log(tr().exportFailed + err);
     el("status").textContent = tr().statusFailed;
   }
 });

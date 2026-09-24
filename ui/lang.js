@@ -8,13 +8,18 @@ const STRINGS = {
     dropSub2: "图片会被包成一页可搜索的 PDF；原生电子版整页跳过，一个字符都不动",
     imageDone: (s) =>
       `已把这张图包成 <b>一页可搜索的 PDF</b>，识别出 ${s.lines} 行文本。`,
+    start: "开始转换",
     exportPdf: "导出 PDF",
     cancel: "取消",
     exportTxt: "导出 TXT",
-    copyText: "复制文字",
+    copyText: "复制文本",
     copied: (n) => `已复制 ${n} 字符到剪贴板。`,
     exportDone: (s) => `已导出 TXT：${s.pages} 页、${s.lines} 行、${s.chars} 字符。`,
     txtName: "文本",
+    pdfName: "PDF 文档",
+    converted: (s) =>
+      `转换完成：<b>${s.pages_total} 页</b>（识别 ${s.pages_ocr} 页、原生跳过 ${s.pages_skipped} 页），${s.lines} 行。`,
+    pdfDone: (r) => `已导出可搜索 PDF：<b>${r.pages} 页</b>。`,
     copyFailed: "复制失败：",
     exportFailed: "导出失败：",
     preparing: "准备中…",
@@ -47,6 +52,7 @@ const STRINGS = {
     dropSub2: "An image is wrapped into a one-page searchable PDF; born-digital pages are skipped untouched",
     imageDone: (s) =>
       `Wrapped the image into <b>a one-page searchable PDF</b> with ${s.lines} lines of text.`,
+    start: "Convert",
     exportPdf: "Export PDF",
     cancel: "Cancel",
     exportTxt: "Export TXT",
@@ -54,6 +60,10 @@ const STRINGS = {
     copied: (n) => `Copied ${n} characters to the clipboard.`,
     exportDone: (s) => `TXT exported: ${s.pages} page(s), ${s.lines} lines, ${s.chars} characters.`,
     txtName: "Text",
+    pdfName: "PDF document",
+    converted: (s) =>
+      `Converted: <b>${s.pages_total} page(s)</b> - ${s.pages_ocr} recognised, ${s.pages_skipped} already readable, ${s.lines} lines.`,
+    pdfDone: (r) => `Searchable PDF exported: <b>${r.pages} page(s)</b>.`,
     copyFailed: "Copy failed: ",
     exportFailed: "Export failed: ",
     preparing: "Preparing…",

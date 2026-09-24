@@ -8,10 +8,12 @@ mod pdf;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::ocr_process,
-            commands::extract_text,
+            commands::ocr_export_pdf,
+            commands::ocr_export_txt,
             commands::ocr_cancel,
         ])
         .run(tauri::generate_context!())

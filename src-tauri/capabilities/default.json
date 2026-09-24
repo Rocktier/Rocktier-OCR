@@ -1,7 +1,9 @@
 {
   "identifier": "default",
   "description": "Default permissions for the app",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -11,6 +13,7 @@
     "core:window:allow-set-title",
     "core:event:allow-listen",
     "core:event:allow-emit",
-    "dialog:default"
+    "dialog:default",
+    "clipboard-manager:allow-write-text"
   ]
 }

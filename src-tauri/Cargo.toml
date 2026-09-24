@@ -21,6 +21,7 @@ anyhow = "1"
 ocr-engine = { path = "../engine" }
 write-searchable = { path = "../writer" }
 pdfium-render = "0.9.4"
+tauri-plugin-clipboard-manager = "2"
 
 [profile.release]
 opt-level = 2
