@@ -6,5 +6,6 @@ pub mod cls;
 pub mod det;
 pub mod pipeline;
 pub mod rec;
+pub mod words;
 
 pub use pipeline::{OcrLine, Pipeline};

@@ -8,11 +8,14 @@ use anyhow::Result;
 use image::{DynamicImage, RgbImage};
 
 use crate::det::{self, DetParams};
+use crate::words;
 
 pub struct OcrLine {
     pub box4: [(i32, i32); 4],
     pub text: String,
     pub score: f32,
+    /// Per-word (or per-character, for CJK) quads in original-image coords.
+    pub words: Vec<(String, [(i32, i32); 4])>,
 }
 
 pub struct Pipeline {
@@ -72,10 +75,12 @@ impl Pipeline {
         sort_boxes(&mut boxes);
 
         // Perspective crops, upright, in recognition order.
-        let mut crops: Vec<RgbImage> = boxes
-            .iter()
-            .map(|b| rotate_crop(&frame.img, &b.box4))
-            .collect();
+        let mut crops: Vec<RgbImage> = Vec::with_capacity(boxes.len());
+        let mut quads: Vec<[(f64, f64); 4]> = Vec::with_capacity(boxes.len());
+        for b in &boxes {
+            crops.push(rotate_crop(&frame.img, &b.box4));
+            quads.push(b.box4.map(|(x, y)| (x as f64, y as f64)));
+        }
 
         // Direction classifier, then recognition.
         for c in crops.iter_mut() {
@@ -83,24 +88,34 @@ impl Pipeline {
             *c = crate::cls::maybe_rotate(&mut self.cls, &owned)?;
         }
         let rec = self.rec.recognize(&crops)?;
-        if std::env::var("OCR_DEBUG").is_ok() {
-            let good = rec.iter().filter(|(_, s)| *s >= self.text_score).count();
-            eprintln!("  [debug] boxes={} crops={} rec>=0.5: {}", boxes.len(), crops.len(), good);
-            for (t, sc) in rec.iter().take(8) {
-                eprintln!("    [debug] {:.2} 「{}」", sc, t);
-            }
-        }
 
-        // Score filter, then the coordinate trip back to the original image.
+        // Score filter, word boxes, then the coordinate trip back to the
+        // original image - words ride the same transform as their line.
         let mut lines = Vec::new();
-        for (b, (text, score)) in boxes.iter().zip(rec) {
-            if score < self.text_score {
+        for (((b, r), crop), quad) in boxes.iter().zip(rec).zip(crops.iter()).zip(quads.iter()) {
+            if r.score < self.text_score {
                 continue;
             }
-            lines.push(OcrLine { box4: b.box4, text, score });
-        }
-        for l in lines.iter_mut() {
-            for c in l.box4.iter_mut() {
+            let words: Vec<(String, [(i64, i64); 4])> = words::word_boxes(
+                &r.text, &r.selection, r.steps,
+                (crop.width() as usize, crop.height() as usize),
+                quad,
+            )
+            .into_iter()
+            .map(|(t, q)| {
+                let q = q.map(|(x, y)| {
+                    let (mut x, mut y) = (x as f64, y as f64);
+                    x -= frame.pad_left as f64;
+                    y -= frame.pad_top as f64;
+                    x *= frame.ratio_w;
+                    y *= frame.ratio_h;
+                    ((x.round() as i64).clamp(0, raw_w as i64), (y.round() as i64).clamp(0, raw_h as i64))
+                });
+                (t, q)
+            })
+            .collect();
+            let mut box4 = b.box4;
+            for c in box4.iter_mut() {
                 let (mut x, mut y) = (c.0 as f64, c.1 as f64);
                 x -= frame.pad_left as f64;
                 y -= frame.pad_top as f64;
@@ -111,6 +126,11 @@ impl Pipeline {
                     (y.round() as i64).clamp(0, raw_h as i64) as i32,
                 );
             }
+            let words = words
+                .into_iter()
+                .map(|(t, q)| (t, q.map(|(x, y)| (x as i32, y as i32))))
+                .collect();
+            lines.push(OcrLine { box4, text: r.text.clone(), score: r.score, words });
         }
         Ok(lines)
     }
@@ -207,6 +227,7 @@ fn rotate_crop(img: &RgbImage, quad: &[(i32, i32); 4]) -> RgbImage {
 /// every destination pixel with a cubic filter and clamped edges.
 fn perspective_warp(img: &RgbImage, src: &[(i32, i32); 4], out_w: u32, out_h: u32) -> RgbImage {
     let (iw, ih) = (img.width() as i64, img.height() as i64);
+    let src_f: [(f64, f64); 4] = src.map(|p| (p.0 as f64, p.1 as f64));
     // The warp is inverse-mapped: every destination pixel asks "where does
     // this come from in the source", so the homography solved here is
     // dst -> src, not the forward one.
@@ -216,49 +237,7 @@ fn perspective_warp(img: &RgbImage, src: &[(i32, i32); 4], out_w: u32, out_h: u3
         (out_w as f64, out_h as f64),
         (0.0, out_h as f64),
     ];
-    // Standard 8x8 system: x' = (h0 u + h1 v + h2)/(h6 u + h7 v + 1).
-    let mut a = [[0f64; 8]; 8];
-    let mut bvec = [0f64; 8];
-    for i in 0..4 {
-        let (x, y) = (src[i].0 as f64, src[i].1 as f64);
-        let (u, v) = dst[i];
-        a[i * 2] = [u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v];
-        bvec[i * 2] = x;
-        a[i * 2 + 1] = [0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v];
-        bvec[i * 2 + 1] = y;
-    }
-    // Gaussian elimination with partial pivoting.
-    for col in 0..8 {
-        let mut piv = col;
-        for r in col + 1..8 {
-            if a[r][col].abs() > a[piv][col].abs() {
-                piv = r;
-            }
-        }
-        a.swap(col, piv);
-        bvec.swap(col, piv);
-        let d = a[col][col];
-        if d.abs() < 1e-12 {
-            continue;
-        }
-        for r in 0..8 {
-            if r == col {
-                continue;
-            }
-            let f = a[r][col] / d;
-            for c in col..8 {
-                a[r][c] -= f * a[col][c];
-            }
-            bvec[r] -= f * bvec[col];
-        }
-    }
-    let h_: [f64; 8] = {
-        let mut h = [0f64; 8];
-        for i in 0..8 {
-            h[i] = bvec[i] / a[i][i];
-        }
-        h
-    };
+    let h_ = homography(&dst, &src_f);
     let map = |dx: f64, dy: f64| -> (f64, f64) {
         let den = h_[6] * dx + h_[7] * dy + 1.0;
         ((h_[0] * dx + h_[1] * dy + h_[2]) / den, (h_[3] * dx + h_[4] * dy + h_[5]) / den)
@@ -311,4 +290,50 @@ fn perspective_warp(img: &RgbImage, src: &[(i32, i32); 4], out_w: u32, out_h: u3
         }
     }
     out
+}
+
+/// Solve the homography that maps `dst` points onto `src` points: a
+/// destination pixel (u, v) lands at ((h0 u + h1 v + h2)/den, (h3 u + h4 v +
+/// h5)/den) with den = h6 u + h7 v + 1. Used for the perspective crops and
+/// for mapping word boxes back through them.
+pub fn homography(dst: &[(f64, f64); 4], src: &[(f64, f64); 4]) -> [f64; 8] {
+    let mut a = [[0f64; 8]; 8];
+    let mut bvec = [0f64; 8];
+    for i in 0..4 {
+        let (x, y) = (src[i].0, src[i].1);
+        let (u, v) = dst[i];
+        a[i * 2] = [u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v];
+        bvec[i * 2] = x;
+        a[i * 2 + 1] = [0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v];
+        bvec[i * 2 + 1] = y;
+    }
+    for col in 0..8 {
+        let mut piv = col;
+        for r in col + 1..8 {
+            if a[r][col].abs() > a[piv][col].abs() {
+                piv = r;
+            }
+        }
+        a.swap(col, piv);
+        bvec.swap(col, piv);
+        let d = a[col][col];
+        if d.abs() < 1e-12 {
+            continue;
+        }
+        for r in 0..8 {
+            if r == col {
+                continue;
+            }
+            let f = a[r][col] / d;
+            for c in col..8 {
+                a[r][c] -= f * a[col][c];
+            }
+            bvec[r] -= f * bvec[col];
+        }
+    }
+    let mut h = [0f64; 8];
+    for i in 0..8 {
+        h[i] = bvec[i] / a[i][i];
+    }
+    h
 }

@@ -3,7 +3,16 @@
 //! table from the same place, so there is no external dictionary to ship.
 
 use anyhow::Result;
-use image::DynamicImage;
+
+#[derive(Clone)]
+pub struct RecResult {
+    pub text: String,
+    pub score: f32,
+    /// Decoded (non-blank) network columns, for word-box mapping.
+    pub selection: Vec<usize>,
+    /// Total network steps for this line.
+    pub steps: usize,
+}
 
 pub struct RecModel {
     session: ort::session::Session,
@@ -59,14 +68,17 @@ impl RecModel {
     /// Recognise a list of cropped text bars. Batching follows the Python:
     /// sorted by aspect ratio, six at a time, tensor width set by the widest
     /// ratio in the batch - that padding is part of the model's contract.
-    pub fn recognize(&mut self, crops: &[image::RgbImage]) -> Result<Vec<(String, f32)>> {
+    pub fn recognize(&mut self, crops: &[image::RgbImage]) -> Result<Vec<RecResult>> {
         let mut order: Vec<usize> = (0..crops.len()).collect();
         order.sort_by(|&a, &b| {
             let ra = crops[a].width() as f32 / crops[a].height() as f32;
             let rb = crops[b].width() as f32 / crops[b].height() as f32;
             ra.partial_cmp(&rb).unwrap()
         });
-        let mut results = vec![(String::new(), 0.0f32); crops.len()];
+        let mut results = vec![
+            RecResult { text: String::new(), score: 0.0, selection: Vec::new(), steps: 0 };
+            crops.len()
+        ];
         for batch in order.chunks(6) {
             let mut max_wh_ratio = 320f32 / 48.0;
             for &i in batch {
@@ -92,13 +104,13 @@ impl RecModel {
             let classes = 6625usize;
             let steps = preds.len() / (tensors.len() * classes);
             for (r, &i) in batch.iter().enumerate() {
-                let (text, conf) = decode(
+                let (text, conf, selection) = decode(
                     &preds[r * steps * classes..(r + 1) * steps * classes],
                     steps,
                     classes,
                     &self.characters,
                 );
-                results[i] = (text, conf);
+                results[i] = RecResult { text, score: conf, selection, steps };
             }
         }
         Ok(results)
@@ -108,10 +120,16 @@ impl RecModel {
 /// Greedy CTC decode: argmax per step, drop consecutive repeats, drop the
 /// blank (index 0), map through the alphabet, score as the mean of the kept
 /// steps' probabilities. An empty selection scores zero, like the Python.
-fn decode(preds: &[f32], steps: usize, classes: usize, characters: &[String]) -> (String, f32) {
+fn decode(
+    preds: &[f32],
+    steps: usize,
+    classes: usize,
+    characters: &[String],
+) -> (String, f32, Vec<usize>) {
     let mut last: usize = usize::MAX;
     let mut text = String::new();
     let mut confs: Vec<f32> = Vec::new();
+    let mut selection: Vec<usize> = Vec::new();
     for t in 0..steps {
         let row = &preds[t * classes..(t + 1) * classes];
         let (bi, &bp) = row
@@ -127,6 +145,7 @@ fn decode(preds: &[f32], steps: usize, classes: usize, characters: &[String]) ->
         if let Some(c) = characters.get(bi) {
             text.push_str(c);
             confs.push(bp);
+            selection.push(t);
         }
     }
     let conf = if confs.is_empty() {
@@ -134,12 +153,5 @@ fn decode(preds: &[f32], steps: usize, classes: usize, characters: &[String]) ->
     } else {
         confs.iter().sum::<f32>() / confs.len() as f32
     };
-    (text, conf)
-}
-
-/// Convenience for the pipeline: recognise one image.
-pub fn recognize_one(model: &mut RecModel, img: &DynamicImage) -> Result<(String, f32)> {
-    let crop = img.to_rgb8();
-    let mut out = model.recognize(std::slice::from_ref(&crop))?;
-    Ok(out.remove(0))
+    (text, conf, selection)
 }

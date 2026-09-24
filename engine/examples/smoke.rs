@@ -16,11 +16,14 @@ fn main() -> anyhow::Result<()> {
     println!("Rust 全流水线: {} 行, 耗时 {:?}", lines.len(), t0.elapsed());
 
     let out: Vec<_> = lines.iter().map(|l| serde_json::json!({
-        "box": l.box4, "text": l.text, "score": l.score
+        "box": l.box4, "text": l.text, "score": l.score, "words": l.words
     })).collect();
     std::fs::write("/tmp/rust-pipeline.json", serde_json::to_vec(&out)?)?;
-    for l in lines.iter().take(8) {
-        println!("  {:.2} 「{}」", l.score, l.text);
+    for l in lines.iter().take(3) {
+        println!("  {:.2} 「{}」 词数 {}", l.score, l.text, l.words.len());
+        for (wt, wb) in l.words.iter().take(3) {
+            println!("     「{}」 @({},{})", wt, wb[0].0, wb[0].1);
+        }
     }
     Ok(())
 }
