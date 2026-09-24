@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- macOS icon grid: artwork scaled to ~78% (960 → 800), leaving proper padding -->
+  <g transform="translate(85.3,85.3) scale(0.8333)">
+  <!-- Dark rounded-square background -->
+  <rect x="32" y="32" width="960" height="960" rx="200" ry="200" fill="#0A0A0A"/>
+  <rect x="32" y="32" width="960" height="960" rx="200" ry="200" fill="none" stroke="#333333" stroke-width="6"/>
+
+  <!-- Top-left: checkmark in a circle (Rocktier brand badge) -->
+  <g transform="translate(128,128) scale(0.85)">
+    <circle cx="180" cy="180" r="160" fill="none" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round"/>
+    <polyline points="120,185 165,230 245,130" fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Red dot (notification badge) top-right -->
+  <circle cx="860" cy="164" r="36" fill="#FF3B30"/>
+
+  <!-- Product code: PE -->
+  <text x="512" y="640" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="360" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central" letter-spacing="-20">PE</text>
+  </g>
+</svg>
