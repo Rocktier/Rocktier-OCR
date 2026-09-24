@@ -1,7 +1,12 @@
 node_modules/
 dist/
-src-tauri/resources/
-resources/
+# 运行时资源随仓库分发：模型 15 MB + pdfium 7 MB。少了任何一份，构建出来的
+# 应用都跑不起来 —— CI 上没有本机可以借（sync-resources.sh 原来靠隔壁仓库），
+# 所以这 22 MB 买的是"在哪都能编出来"。
+resources/*
+src-tauri/resources/*
+!src-tauri/resources/models
+!src-tauri/resources/pdfium-runtime
 .DS_Store
 *.tmp
 # 语料不进仓库：扫描件含客户信息，且体积大

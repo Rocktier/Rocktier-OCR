@@ -1,0 +1,97 @@
+name: Release
+
+# 打 tag 即发布：构建 macOS 安装包并挂到对应的 GitHub Release。
+#
+# 第一个版本只出一个目标（Apple Silicon）。先在自家机器上把分发链路跑通，
+# Intel 目标随后加 —— 多一个 --target 而已，不必在第一版就赌两条腿。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build macOS installer (Apple Silicon)
+    # macOS，不是 ubuntu：Tauri 的 crate 在 Linux 上要 gtk/webkit 等系统库，
+    # 裸 runner 没有 —— 家族在别的产品上已经踩过这个。
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 没有前端要构建：tauri.conf.json 只把 frontendDist 指向静态的 ui/。
+      # 装 npm 包只为拿到 tauri 这个命令本身。
+      - name: Install Tauri CLI
+        run: npm install
+
+      - name: Build
+        run: npm run tauri -- build --target aarch64-apple-darwin
+
+      - name: Collect installers
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
+          dmg=$(find "$bundle/dmg" -name '*.dmg' 2>/dev/null | head -1)
+          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' 2>/dev/null | head -1)
+          if [ -z "$dmg" ]; then
+            echo "::error::no dmg was produced" >&2
+            exit 1
+          fi
+          cp "$dmg" artifacts/
+          if [ -n "$app" ]; then
+            ditto -c -k --keepParent "$app" "artifacts/$(basename "$app").zip"
+          fi
+          ls -la artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-aarch64
+          path: artifacts/*
+
+      - name: Publish to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' \) -print0 > installers.nul
+          count=$(tr -cd '\0' < installers.nul | wc -c)
+          echo "Found $count installer(s)"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::nothing to publish - refusing to create an empty release" >&2
+            exit 1
+          fi
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+          # 上传失败不能被吞掉：早先那种 `cmd && break || sleep` 的写法，
+          # 在每次都失败时会把退出码留在 0，job 报绿而 Release 里空无一物。
+          uploaded=0
+          for i in $(seq 1 5); do
+            if xargs -0 -r gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber < installers.nul; then
+              uploaded=1
+              break
+            fi
+            echo "upload attempt $i failed, retrying"
+            sleep 5
+          done
+          if [ "$uploaded" -ne 1 ]; then
+            echo "::error::uploading to $GITHUB_REF_NAME failed after 5 attempts" >&2
+            exit 1
+          fi
+          echo "attached $count file(s)"
