@@ -23,7 +23,7 @@ function setRunning(on) {
   el("go").disabled = on || !inputPath;
   el("cancel").disabled = !on;
   el("bar-wrap").style.display = on ? "block" : "none";
-  if (on) el("status").textContent = "准备中…";
+  if (on) el("status").textContent = tr().preparing;
 }
 
 function setPath(p) {
@@ -41,7 +41,7 @@ async function pickFile() {
     });
     if (p) setPath(p);
   } catch (err) {
-    log("打开文件对话框失败：" + err);
+    log(tr().dialogFailed + err);
   }
 }
 
@@ -82,12 +82,12 @@ async function bindDragDrop() {
         el("drop").classList.remove("over");
         const paths = payload.paths || [];
         setPath(paths.find((p) => p.toLowerCase().endsWith(".pdf")) || null);
-        if (!paths.length) log("拖入的不是文件，或系统未提供路径。");
+        if (!paths.length) log(tr().notFile);
       }
     });
     void unlisten;
   } catch (err) {
-    log("拖拽监听未启用：" + err);
+    log(tr().dragNotEnabled + err);
   }
 }
 bindDragDrop();
@@ -104,30 +104,35 @@ el("go").addEventListener("click", async () => {
   let out;
   try {
     out = await save({
-      defaultPath: stem + "-searchable.pdf",
+      defaultPath: stem + tr().saveDefault + ".pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
   } catch (err) {
-    log("打开保存对话框失败：" + err);
+    log(tr().saveDialogFailed + err);
     return;
   }
   if (!out) return;
   setRunning(true);
   el("done").style.display = "none";
   el("log").textContent = "";
-  log("开始识别：" + inputPath);
+  log(tr().startLog + inputPath);
   try {
     const s = await invoke("ocr_process", { input: inputPath, output: out, dpi: 200 });
     el("done").style.display = "block";
-    el("done").innerHTML =
-      `完成：<b>${s.pages_ocr} 页</b>识别加层，${s.pages_skipped} 页原生跳过，共 ${s.lines} 行文本。` +
-      `<br><span class="out">${s.output}</span>`;
-    log("完成 ✅ 输出：" + s.output);
-    el("status").textContent = "完成";
+    if (s.already_searchable) {
+      el("done").innerHTML = tr().already + `<br><span class="out">${tr().output}: ${s.output}</span>`;
+      log(tr().alreadyLog);
+    } else {
+      el("done").innerHTML = tr().done(s) + `<br><span class="out">${s.output}</span>`;
+      log(tr().finished + s.output);
+    }
+    el("status").textContent = tr().statusDone;
   } catch (err) {
+    const t = tr();
     const msg = String(err);
-    log(msg.includes("cancelled") ? "已取消。" : "失败：" + msg);
-    el("status").textContent = msg.includes("cancelled") ? "已取消" : "失败";
+    const wasCancelled = msg.includes("cancelled");
+    log(wasCancelled ? t.cancelled : t.failed + msg);
+    el("status").textContent = wasCancelled ? t.statusCancelled : t.statusFailed;
   }
   setRunning(false);
 });
@@ -136,7 +141,7 @@ el("cancel").addEventListener("click", () => invoke("ocr_cancel"));
 
 listen("ocr-progress", (e) => {
   const p = e.payload;
-  el("status").textContent = `页 ${p.page}/${p.total} · ${p.phase}`;
+  el("status").textContent = tr().statusPage(p.page, p.total, p.phase);
   el("bar").style.width = `${((p.page / p.total) * 100).toFixed(1)}%`;
 });
 

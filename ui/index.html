@@ -82,6 +82,10 @@
     button.primary:hover:not(:disabled) { background: rgba(255, 255, 255, .88); }
     button:disabled { opacity: .4; cursor: default; }
 
+    button.lang {
+      margin-left: 10px; padding: 4px 9px; font-size: 11px; border-radius: 7px;
+      color: var(--text-secondary);
+    }
     #status { margin-left: auto; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 
     #bar-wrap { height: 4px; background: var(--dot); border-radius: 2px; overflow: hidden; display: none; }
@@ -112,25 +116,30 @@
 <body>
   <header>
     <div class="dot"></div>
-    <h1>Rocktier OCR</h1>
-    <span class="tag">扫描件变可搜索</span>
+    <h1 data-i18n="title">Rocktier OCR</h1>
+    <span class="tag" data-i18n="tagline">扫描件变可搜索</span>
+    <button id="lang" class="lang" title="中文 / EN">EN</button>
   </header>
   <main>
     <div id="drop">
-      <div class="big">把 PDF 拖到这里</div>
-      <div class="sub">扫描件与图片型 PDF 会被识别并加上可搜索的文字层<br>原生电子版整页跳过，一个字符都不动</div>
+      <div class="big" data-i18n="dropBig">把 PDF 拖到这里</div>
+      <div class="sub">
+        <span data-i18n="dropSub1">扫描件与图片型 PDF 会被识别并加上可搜索的文字层</span><br>
+        <span data-i18n="dropSub2">原生电子版整页跳过，一个字符都不动</span>
+      </div>
       <div class="path" id="path"></div>
     </div>
     <div class="row">
-      <button id="go" class="primary" disabled>开始识别</button>
-      <button id="cancel" disabled>取消</button>
+      <button id="go" class="primary" data-i18n="go" disabled>开始识别</button>
+      <button id="cancel" data-i18n="cancel" disabled>取消</button>
       <span id="status"></span>
     </div>
     <div id="bar-wrap"><div id="bar"></div></div>
     <div id="done"></div>
     <div id="log"></div>
   </main>
-  <footer>识别在本机完成，文档不会离开这台电脑。</footer>
+  <footer data-i18n="footer">识别在本机完成，文档不会离开这台电脑。</footer>
+  <script src="lang.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

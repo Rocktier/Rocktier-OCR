@@ -16,6 +16,10 @@ fn candidate_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     if let Ok(p) = std::env::var("OCR_PDFIUM_DIR") {
         dirs.push(PathBuf::from(p));
     }
+    // Compiled-in path: correct whatever the working directory is, which is
+    // what an unbundled run needs - resource_dir() is only a real directory
+    // once the app is packaged.
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/pdfium-runtime"));
     if let Ok(dir) = app.path().resource_dir() {
         dirs.push(dir.join("pdfium-runtime"));
         dirs.push(dir.join("resources").join("pdfium-runtime"));
@@ -65,6 +69,12 @@ pub fn render_page(page: &PdfPage, dpi: f64) -> Result<image::DynamicImage> {
 pub fn model_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
     if let Ok(p) = std::env::var("OCR_MODELS_DIR") {
         return Ok(PathBuf::from(p));
+    }
+    // Same reasoning as the pdfium path: the compiled-in directory is the one
+    // an unbundled run can always reach.
+    let baked = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/models");
+    if baked.join("ch_PP-OCRv4_det_infer.onnx").exists() {
+        return Ok(baked);
     }
     if let Ok(dir) = app.path().resource_dir() {
         let candidate = dir.join("models");

@@ -36,6 +36,9 @@ pub struct Summary {
     pages_skipped: usize,
     lines: usize,
     output: String,
+    /// True when every page already carried a text layer: there was nothing
+    /// for the recogniser to do, and the UI should say so in plain words.
+    already_searchable: bool,
 }
 
 fn with_pipeline<F, T>(
@@ -144,6 +147,7 @@ pub async fn ocr_process(
             pages_ocr: ocr_pages,
             pages_skipped: skipped,
             lines: line_count,
+            already_searchable: ocr_pages == 0 && skipped > 0,
             output: output.clone(),
         })
     })
