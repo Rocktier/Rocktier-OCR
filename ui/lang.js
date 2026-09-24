@@ -3,9 +3,11 @@ const STRINGS = {
   zh: {
     title: "Rocktier OCR",
     tagline: "扫描件变可搜索",
-    dropBig: "把 PDF 拖到这里",
-    dropSub1: "扫描件与图片型 PDF 会被识别并加上可搜索的文字层",
-    dropSub2: "原生电子版整页跳过，一个字符都不动",
+    dropBig: "把 PDF 或图片拖到这里",
+    dropSub1: "扫描件与图片型 PDF 会被识别，并加上可搜索的文字层",
+    dropSub2: "图片会被包成一页可搜索的 PDF；原生电子版整页跳过，一个字符都不动",
+    imageDone: (s) =>
+      `已把这张图包成 <b>一页可搜索的 PDF</b>，识别出 ${s.lines} 行文本。`,
     go: "开始识别",
     cancel: "取消",
     preparing: "准备中…",
@@ -33,9 +35,11 @@ const STRINGS = {
   en: {
     title: "Rocktier OCR",
     tagline: "Make scans searchable",
-    dropBig: "Drop a PDF here",
-    dropSub1: "Scans and image-only PDFs get a searchable text layer",
-    dropSub2: "Born-digital pages are skipped untouched",
+    dropBig: "Drop a PDF or an image here",
+    dropSub1: "Scans and image-only PDFs are recognised and given a searchable text layer",
+    dropSub2: "An image is wrapped into a one-page searchable PDF; born-digital pages are skipped untouched",
+    imageDone: (s) =>
+      `Wrapped the image into <b>a one-page searchable PDF</b> with ${s.lines} lines of text.`,
     go: "Recognise",
     cancel: "Cancel",
     preparing: "Preparing…",

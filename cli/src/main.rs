@@ -100,6 +100,38 @@ fn main() -> Result<()> {
         .unwrap_or(DPI);
 
     let mut pipe = build_pipeline()?;
+    // An image has no document to preserve: it becomes a one-page searchable
+    // PDF with the picture as its page.
+    if !input.to_string_lossy().to_lowercase().ends_with(".pdf") {
+        let img = image::open(input)?;
+        eprintln!("  图片 {}x{}，识别中…", img.width(), img.height());
+        let lines = pipe.run(&img)?;
+        eprintln!("  识别 {} 行", lines.len());
+        let tmp = std::env::temp_dir().join("ocr-cli-pages.json");
+        std::fs::write(&tmp, serde_json::to_vec(&blocks_json(&lines))?)?;
+        // The writer embeds the page as JPEG, so anything else is transcoded.
+        let jpeg_path = if input.to_string_lossy().to_lowercase().ends_with(".jpg")
+            || input.to_string_lossy().to_lowercase().ends_with(".jpeg")
+        {
+            input.to_path_buf()
+        } else {
+            let dst = std::env::temp_dir().join("ocr-cli-page.jpg");
+            img.write_to(&mut std::fs::File::create(&dst)?, image::ImageFormat::Jpeg)?;
+            dst
+        };
+        write_searchable::write_from_image(
+            jpeg_path.to_str().unwrap(),
+            tmp.to_str().unwrap(),
+            out.to_str().unwrap(),
+            img.width() as i64,
+            img.height() as i64,
+            dpi,
+        )
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        eprintln!("  ✅ 输出（图片 → 一页可搜索 PDF）: {out:?}");
+        return Ok(());
+    }
+
     let pdfium = bind_pdfium()?;
     let doc = pdfium.load_pdf_from_file(input, None)?;
     let page_count = doc.pages().len() as usize;

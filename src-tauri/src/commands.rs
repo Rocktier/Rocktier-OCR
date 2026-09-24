@@ -1,9 +1,14 @@
 //! The two commands the UI talks to: process a document, cancel it.
+//!
+//! Two inputs are accepted. A PDF keeps its own identity and gains a text
+//! layer, page by page, skipping pages that already have text. An image has no
+//! identity to keep, so it becomes a one-page searchable PDF with the picture
+//! as its page - the same idea as scanning a sheet.
 
 use crate::pdf;
 use ocr_engine::Pipeline;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
@@ -36,8 +41,9 @@ pub struct Summary {
     pages_skipped: usize,
     lines: usize,
     output: String,
-    /// True when every page already carried a text layer: there was nothing
-    /// for the recogniser to do, and the UI should say so in plain words.
+    /// "pdf" or "image" - the frontend says what it made from each.
+    kind: String,
+    /// Every page already carried a text layer: there was nothing to do.
     already_searchable: bool,
 }
 
@@ -85,8 +91,6 @@ fn blocks_json(lines: &[ocr_engine::OcrLine]) -> serde_json::Value {
         .collect::<Vec<_>>())
 }
 
-/// Process a document: rasterise, recognise, layer, save. Emits
-/// `ocr-progress` per page; a page already carrying text is left untouched.
 #[tauri::command(async)]
 pub async fn ocr_process(
     app: AppHandle,
@@ -102,34 +106,57 @@ pub async fn ocr_process(
 
     let app_for_pdf = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Summary, String> {
-        let pdfium = pdf::init_pdfium(&app_for_pdf).map_err(|e| e.to_string())?;
-        let doc = pdfium
-            .load_pdf_from_file(Path::new(&input), None)
-            .map_err(|e| e.to_string())?;
-        let total = doc.pages().len() as usize;
-        let mut pages: Vec<serde_json::Value> = Vec::with_capacity(total);
+        let is_pdf = input.to_lowercase().ends_with(".pdf");
+        let mut pages: Vec<serde_json::Value> = Vec::new();
         let (mut ocr_pages, mut skipped, mut line_count) = (0usize, 0usize, 0usize);
+        let total: usize;
 
-        for i in 0..total {
-            if cancel.load(Ordering::SeqCst) {
-                return Err("cancelled".into());
-            }
-            let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "detect".into() });
-            let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
-            let text_chars = pdf::page_text_len(&page);
-            if text_chars >= 10 {
-                skipped += 1;
-                pages.push(serde_json::json!([]));
+        if is_pdf {
+            let pdfium = pdf::init_pdfium(&app_for_pdf).map_err(|e| e.to_string())?;
+            let doc = pdfium
+                .load_pdf_from_file(Path::new(&input), None)
+                .map_err(|e| e.to_string())?;
+            total = doc.pages().len() as usize;
+            for i in 0..total {
+                if cancel.load(Ordering::SeqCst) {
+                    return Err("cancelled".into());
+                }
                 let _ = app.emit(
                     "ocr-progress",
-                    Progress { page: i + 1, total, phase: format!("skipped ({text_chars} chars)") },
+                    Progress { page: i + 1, total, phase: "detect".into() },
                 );
-                continue;
+                let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
+                let text_chars = pdf::page_text_len(&page);
+                if text_chars >= 10 {
+                    skipped += 1;
+                    pages.push(serde_json::json!([]));
+                    let _ = app.emit(
+                        "ocr-progress",
+                        Progress {
+                            page: i + 1,
+                            total,
+                            phase: format!("skipped ({text_chars} chars)"),
+                        },
+                    );
+                    continue;
+                }
+                let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "render".into() });
+                let img = pdf::render_page(&page, dpi).map_err(|e| e.to_string())?;
+                let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "recognise".into() });
+                let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
+                    pipe.run(&img).map_err(|e| e.to_string())
+                })?;
+                line_count += lines.len();
+                ocr_pages += 1;
+                pages.push(blocks_json(&lines));
             }
-            let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "render".into() });
-            let img = pdf::render_page(&page, dpi).map_err(|e| e.to_string())?;
-            let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "recognise".into() });
-            let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| pipe.run(&img).map_err(|e| e.to_string()))?;
+        } else {
+            total = 1;
+            let _ = app.emit("ocr-progress", Progress { page: 1, total, phase: "recognise".into() });
+            let img = image::open(&input).map_err(|e| format!("无法打开图片：{e}"))?;
+            let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
+                pipe.run(&img).map_err(|e| e.to_string())
+            })?;
             line_count += lines.len();
             ocr_pages += 1;
             pages.push(blocks_json(&lines));
@@ -137,11 +164,37 @@ pub async fn ocr_process(
 
         let _ = app.emit("ocr-progress", Progress { page: total, total, phase: "write".into() });
         let tmp = std::env::temp_dir().join("rocktier-ocr-pages.json");
-        std::fs::write(&tmp, serde_json::to_vec(&pages).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
-        write_searchable::layer_on_existing(&input, tmp.to_str().unwrap(), &output, dpi, true)
-            .map_err(|e| e.to_string())?;
+        // A PDF takes one entry per page; the single-image path takes the flat
+        // block array, which is the same shape that mode was written for.
+        let payload = if is_pdf {
+            serde_json::to_vec(&pages)
+        } else {
+            serde_json::to_vec(pages.first().unwrap_or(&serde_json::json!([])))
+        }
+        .map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
 
+        if is_pdf {
+            write_searchable::layer_on_existing(&input, tmp.to_str().unwrap(), &output, dpi, true)
+                .map_err(|e| e.to_string())?;
+        } else {
+            let img = image::open(&input).map_err(|e| e.to_string())?;
+            let (w, h) = (img.width() as i64, img.height() as i64);
+            // The page is embedded as JPEG, so any other format is transcoded
+            // first - a PNG's bytes declared as DCTDecode is a broken picture.
+            let page = if input.to_lowercase().ends_with(".jpg") || input.to_lowercase().ends_with(".jpeg") {
+                input.clone()
+            } else {
+                let dst = std::env::temp_dir().join("rocktier-ocr-page.jpg");
+                img.write_to(&mut std::fs::File::create(&dst).map_err(|e| e.to_string())?, image::ImageFormat::Jpeg)
+                    .map_err(|e| e.to_string())?;
+                dst.to_string_lossy().to_string()
+            };
+            write_searchable::write_from_image(&page, tmp.to_str().unwrap(), &output, w, h, dpi)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let kind = if is_pdf { "pdf".to_string() } else { "image".to_string() };
         Ok(Summary {
             pages_total: total,
             pages_ocr: ocr_pages,
@@ -149,6 +202,7 @@ pub async fn ocr_process(
             lines: line_count,
             already_searchable: ocr_pages == 0 && skipped > 0,
             output: output.clone(),
+            kind,
         })
     })
     .await
@@ -159,10 +213,4 @@ pub async fn ocr_process(
 #[tauri::command]
 pub fn ocr_cancel(state: State<'_, AppState>) {
     state.cancel.store(true, Ordering::SeqCst);
-}
-
-/// Resolve a path for the frontend (dialog gives absolute paths already; this
-/// exists so the UI can show one without another plugin).
-pub fn out_path_hint(dir: &Path, stem: &str) -> PathBuf {
-    dir.join(format!("{stem}-searchable.pdf"))
 }

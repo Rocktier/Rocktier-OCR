@@ -11,6 +11,11 @@ const el = (id) => document.getElementById(id);
 let inputPath = null;
 let running = false;
 
+const SUPPORTED = [".pdf", ".png", ".jpg", ".jpeg"];
+function isSupported(name) {
+  return SUPPORTED.some((ext) => name.toLowerCase().endsWith(ext));
+}
+
 function log(msg) {
   const box = el("log");
   box.style.display = "block";
@@ -37,7 +42,10 @@ async function pickFile() {
   try {
     const p = await open({
       multiple: false,
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
+      filters: [
+        { name: "PDF", extensions: ["pdf"] },
+        { name: "Image", extensions: ["png", "jpg", "jpeg"] },
+      ],
     });
     if (p) setPath(p);
   } catch (err) {
@@ -57,7 +65,7 @@ el("drop").addEventListener("drop", (e) => {
   // 兜底：真实路径由 webview 事件给出，这里只在它缺失时尝试。
   if (inputPath) return;
   const files = e.dataTransfer?.files;
-  if (files && files.length && files[0].name.toLowerCase().endsWith(".pdf")) {
+  if (files && files.length && isSupported(files[0].name)) {
     setPath(files[0].path || null);
   }
 });
@@ -81,7 +89,7 @@ async function bindDragDrop() {
       if (type === "drop") {
         el("drop").classList.remove("over");
         const paths = payload.paths || [];
-        setPath(paths.find((p) => p.toLowerCase().endsWith(".pdf")) || null);
+        setPath(paths.find((p) => isSupported(p)) || null);
         if (!paths.length) log(tr().notFile);
       }
     });
@@ -95,7 +103,7 @@ bindDragDrop();
 // 旧式事件名兜底（不同版本的 Tauri 都发过这个）。
 listen("tauri://drag-drop", (e) => {
   const paths = e.payload?.paths || [];
-  setPath(paths.find((p) => p.toLowerCase().endsWith(".pdf")) || null);
+  setPath(paths.find((p) => isSupported(p)) || null);
 });
 
 el("go").addEventListener("click", async () => {
@@ -122,6 +130,9 @@ el("go").addEventListener("click", async () => {
     if (s.already_searchable) {
       el("done").innerHTML = tr().already + `<br><span class="out">${tr().output}: ${s.output}</span>`;
       log(tr().alreadyLog);
+    } else if (s.kind === "image") {
+      el("done").innerHTML = tr().imageDone(s) + `<br><span class="out">${s.output}</span>`;
+      log(tr().finished + s.output);
     } else {
       el("done").innerHTML = tr().done(s) + `<br><span class="out">${s.output}</span>`;
       log(tr().finished + s.output);
