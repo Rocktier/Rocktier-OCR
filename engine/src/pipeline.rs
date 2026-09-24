@@ -124,24 +124,22 @@ impl Pipeline {
             let ratio = self.max_side_len as f64 / w.max(h);
             w = (w * ratio).floor();
             h = (h * ratio).floor();
-            ratio_h = ratio;
-            ratio_w = ratio;
+            // The returned ratio is the trip BACK to the original size - the
+            // origin mapping multiplies by it - so it is original over new.
+            ratio_h = raw.height() as f64 / h;
+            ratio_w = raw.width() as f64 / w;
         }
         if w.min(h) < self.min_side_len as f64 {
             let ratio = self.min_side_len as f64 / w.min(h);
             w = (w * ratio).floor();
             h = (h * ratio).floor();
-            // The Python reassigns the ratios here rather than multiplying,
-            // so a double transform keeps only the second step's ratio.
-            ratio_h = ratio;
-            ratio_w = ratio;
+            // Same convention, and the Python reassigns rather than
+            // multiplies, so a double transform keeps only this ratio.
+            ratio_h = raw.height() as f64 / h;
+            ratio_w = raw.width() as f64 / w;
         }
         let rgb = raw.to_rgb8();
-        let img = if (w as u32, h as u32) == (raw.width(), raw.height()) {
-            rgb
-        } else {
-            image::imageops::resize(&rgb, w as u32, h as u32, image::imageops::FilterType::Triangle)
-        };
+        let img = crate::det::bilinear_resize(&rgb, w as usize, h as usize);
         Frame { img, ratio_h, ratio_w, pad_top: 0, pad_left: 0 }
     }
 

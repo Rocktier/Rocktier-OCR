@@ -10,6 +10,54 @@
 
 use anyhow::Result;
 
+/// `cv2.resize` with INTER_LINEAR: half-pixel-centre mapping and a fixed
+/// two-by-two support - no prefiltering on the way down, which is why this
+/// differs from a triangle-filter resample and why the port needs its own.
+pub fn bilinear_resize(img: &image::RgbImage, nw: usize, nh: usize) -> image::RgbImage {
+    let (sw, sh) = (img.width() as usize, img.height() as usize);
+    if (sw, sh) == (nw, nh) {
+        return img.clone();
+    }
+    let mut out = image::RgbImage::new(nw as u32, nh as u32);
+    let (sxr, syr) = (sw as f64 / nw as f64, sh as f64 / nh as f64);
+    for dy in 0..nh {
+        let sy = (dy as f64 + 0.5) * syr - 0.5;
+        let y0 = sy.floor();
+        let fy = sy - y0;
+        let y0 = (y0 as i64).clamp(0, sh as i64 - 1);
+        let y1 = (y0 + 1).clamp(0, sh as i64 - 1);
+        for dx in 0..nw {
+            let sx = (dx as f64 + 0.5) * sxr - 0.5;
+            let x0 = sx.floor();
+            let fx = sx - x0;
+            let x0 = (x0 as i64).clamp(0, sw as i64 - 1);
+            let x1 = (x0 + 1).clamp(0, sw as i64 - 1);
+            let p00 = img.get_pixel(x0 as u32, y0 as u32);
+            let p10 = img.get_pixel(x1 as u32, y0 as u32);
+            let p01 = img.get_pixel(x0 as u32, y1 as u32);
+            let p11 = img.get_pixel(x1 as u32, y1 as u32);
+            let mut px = [0u8; 3];
+            for ch in 0..3 {
+                let top = p00[ch] as f64 * (1.0 - fx) + p10[ch] as f64 * fx;
+                let bot = p01[ch] as f64 * (1.0 - fx) + p11[ch] as f64 * fx;
+                px[ch] = (top * (1.0 - fy) + bot * fy).round().clamp(0.0, 255.0) as u8;
+            }
+            out.put_pixel(dx as u32, dy as u32, image::Rgb(px));
+        }
+    }
+    out
+}
+
+/// Python's round() is banker's rounding; 62.5 goes to 62, not 63. The
+/// detector's input size must match it exactly or the map comes back at the
+/// wrong size.
+fn py_round_to_32(v: usize) -> usize {
+    let q = v as f64 / 32.0;
+    let r = q.round();
+    let r = if (q - q.floor()).abs() == 0.5 && r % 2.0 != 0.0 { r - 1.0 } else { r };
+    (r as usize) * 32
+}
+
 pub struct DetParams {
     /// Scale the smaller side to this only when it is at least this already.
     pub limit_side_len: usize,
@@ -55,19 +103,10 @@ pub fn preprocess(img: &image::RgbImage, p: &DetParams) -> (Vec<f32>, usize, usi
     // stretches the image to the rounded size, there is no padding step.
     let rw = (w as f32 * scale) as usize;
     let rh = (h as f32 * scale) as usize;
-    let nw = (rw as f32 / 32.0).round() as usize * 32;
-    let nh = (rh as f32 / 32.0).round() as usize * 32;
+    let nw = py_round_to_32(rw);
+    let nh = py_round_to_32(rh);
 
-    let resized = if (nw, nh) == (w, h) {
-        img.clone()
-    } else {
-        image::imageops::resize(
-            img,
-            nw as u32,
-            nh as u32,
-            image::imageops::FilterType::Triangle,
-        )
-    };
+    let resized = bilinear_resize(img, nw, nh);
 
     let mut input = vec![0f32; nw * nh * 3];
     for y in 0..nh {
