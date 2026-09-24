@@ -1,6 +1,5 @@
 node_modules/
 dist/
-src-tauri/target/
 src-tauri/resources/
 resources/
 .DS_Store
@@ -22,5 +21,6 @@ __pycache__/
 *.pyc
 
 # Rust 构建产物
-writer/target/
-engine/target/
+
+# Rust 构建产物（任何 crate 的）
+target/

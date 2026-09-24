@@ -1,0 +1,16 @@
+[package]
+name = "ocr-cli"
+version = "0.1.0"
+edition = "2021"
+description = "End-to-end searchable PDF: pdfium raster -> PP-OCR engine -> writer, all Rust"
+
+[dependencies]
+ocr-engine = { path = "../engine" }
+write-searchable = { path = "../writer" }
+pdfium-render = "0.9.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+opt-level = 2

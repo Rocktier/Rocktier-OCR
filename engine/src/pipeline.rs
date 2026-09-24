@@ -217,7 +217,9 @@ fn rotate_crop(img: &RgbImage, quad: &[(i32, i32); 4]) -> RgbImage {
     }
     let warped = perspective_warp(img, &p, crop_w, crop_h);
     if crop_h as f32 / crop_w as f32 >= 1.5 {
-        image::imageops::rotate90(&warped)
+        // np.rot90 turns counter-clockwise; the image crate's rotate90 runs
+        // clockwise, so the counter-clockwise turn is rotate270 here.
+        image::imageops::rotate270(&warped)
     } else {
         warped
     }

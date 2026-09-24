@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
         let img = image::open(p)?;
         let lines = pipe.run(&img)?;
         let out: Vec<_> = lines.iter().map(|l| serde_json::json!({
-            "box": l.box4, "text": l.text, "score": l.score
+            "box": l.box4, "text": l.text, "score": l.score, "words": l.words
         })).collect();
         let dst = Path::new("/tmp/rust-harness").join(format!("{stem}.json"));
         std::fs::write(&dst, serde_json::to_vec(&out)?)?;
