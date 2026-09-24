@@ -386,6 +386,127 @@ fn strip_text(doc: &mut Document, page_id: ObjectId) -> Result<(), Box<dyn std::
     Ok(())
 }
 
+/// Width and height of a page in points, from its MediaBox.
+fn page_size(doc: &Document, page_id: ObjectId) -> (f64, f64) {
+    if let Ok(dict) = doc.get_dictionary(page_id) {
+        if let Ok(Object::Array(a)) = dict.get(b"MediaBox") {
+            if a.len() == 4 {
+                // Entries may be Integer or Real; as_float takes both.
+                let x0 = a[0].as_float().unwrap_or(0.0) as f64;
+                let y0 = a[1].as_float().unwrap_or(0.0) as f64;
+                let x1 = a[2].as_float().unwrap_or(612.0) as f64;
+                let y1 = a[3].as_float().unwrap_or(792.0) as f64;
+                let (w, h) = (x1 - x0, y1 - y0);
+                if w > 1.0 && h > 1.0 {
+                    return (w, h);
+                }
+            }
+        }
+    }
+    (612.0, 792.0)
+}
+
+/// Does this page's visible content come from an image covering most of it?
+///
+/// Only such a page may have its text stripped. On a scan the ink lives in the
+/// image and the text is somebody else's OCR layer, so taking the text out
+/// leaves the page intact. On a page born digital the text IS the content:
+/// removing it erases the page - which is exactly what replace did to this
+/// corpus, and what the visual criterion caught.
+///
+/// The test tracks the CTM through the content stream and adds up the area
+/// every image is drawn over. A page whose images cover most of it is treated
+/// as a scan; anything else keeps its text.
+fn page_is_scan(doc: &Document, page_id: ObjectId) -> bool {
+    let content = match doc.get_and_decode_page_content(page_id) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let (pw, ph) = page_size(doc, page_id);
+    if pw <= 1.0 || ph <= 1.0 {
+        return false;
+    }
+    let page_area = pw * ph;
+
+    // Names of XObjects that are images. Resources may be inherited, so ask the
+    // document rather than reading the page's own dictionary.
+    let xobjects = doc.get_page_resources(page_id).ok().and_then(|(res, _)| {
+        res.and_then(|d| d.get(b"XObject").ok().cloned())
+            .and_then(|o| match o {
+                Object::Dictionary(d) => Some(d),
+                Object::Reference(id) => doc
+                    .get_object(id)
+                    .and_then(Object::as_dict)
+                    .ok()
+                    .map(|d| d.clone()),
+                _ => None,
+            })
+    });
+
+    let mut ctm = [1.0f64, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let mut stack: Vec<[f64; 6]> = Vec::new();
+    let mut covered = 0.0f64;
+    for op in &content.operations {
+        match op.operator.as_str() {
+            "q" => stack.push(ctm),
+            "Q" => ctm = stack.pop().unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
+            "cm" => {
+                let mut mm = [1.0f64, 0.0, 0.0, 1.0, 0.0, 0.0];
+                for (i, o) in op.operands.iter().take(6).enumerate() {
+                    mm[i] = o.as_float().unwrap_or(0.0) as f64;
+                }
+                // PDF concatenates as cm x CTM.
+                ctm = [
+                    mm[0] * ctm[0] + mm[1] * ctm[2],
+                    mm[0] * ctm[1] + mm[1] * ctm[3],
+                    mm[2] * ctm[0] + mm[3] * ctm[2],
+                    mm[2] * ctm[1] + mm[3] * ctm[3],
+                    mm[4] * ctm[0] + mm[5] * ctm[2] + ctm[4],
+                    mm[4] * ctm[1] + mm[5] * ctm[3] + ctm[5],
+                ];
+            }
+            "Do" => {
+                let name = match op.operands.first().and_then(|o| o.as_name().ok()) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let is_image = xobjects
+                    .as_ref()
+                    .and_then(|d| d.get(name).ok())
+                    .map(|o| match o {
+                        Object::Stream(st) => st
+                            .dict
+                            .get(b"Subtype")
+                            .ok()
+                            .and_then(|s| s.as_name().ok())
+                            .map(|n| n == b"Image")
+                            .unwrap_or(false),
+                        Object::Reference(id) => doc
+                            .get_object(*id)
+                            .ok()
+                            .and_then(|o| o.as_stream().ok())
+                            .and_then(|st| {
+                                st.dict
+                                    .get(b"Subtype")
+                                    .ok()
+                                    .and_then(|s| s.as_name().ok())
+                                    .map(|n| n == b"Image")
+                            })
+                            .unwrap_or(false),
+                        _ => false,
+                    })
+                    .unwrap_or(false);
+                if is_image {
+                    // A unit square drawn through this matrix has area |det|.
+                    covered += (ctm[0] * ctm[3] - ctm[1] * ctm[2]).abs();
+                }
+            }
+            _ => {}
+        }
+    }
+    covered / page_area >= 0.7
+}
+
 /// Height of a page in points, from its MediaBox.
 fn page_height(doc: &Document, page_id: ObjectId) -> f64 {
     if let Ok(dict) = doc.get_dictionary(page_id) {
@@ -431,7 +552,11 @@ fn layer_on_existing(
         all_placed.append(&mut placed);
         // Only a page we actually recognised gets its old text taken out. Stripping
         // one we failed on would destroy the only text it has.
-        if replace && !blocks.is_empty() {
+        // Strip only what the engine recognised, and only where the page is a
+        // scan. On a page born digital the text is the content, and stripping it
+        // erases the page - which is what replace did to this corpus before the
+        // visual criterion caught it.
+        if replace && !blocks.is_empty() && page_is_scan(&doc, *page_id) {
             strip_text(&mut doc, *page_id)?;
         }
         ensure_font(&mut doc, *page_id, font_id)?;
