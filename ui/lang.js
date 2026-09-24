@@ -8,7 +8,7 @@ const STRINGS = {
     dropSub2: "图片会被包成一页可搜索的 PDF；原生电子版整页跳过，一个字符都不动",
     imageDone: (s) =>
       `已把这张图包成 <b>一页可搜索的 PDF</b>，识别出 ${s.lines} 行文本。`,
-    go: "开始识别",
+    exportPdf: "导出 PDF",
     cancel: "取消",
     exportTxt: "导出 TXT",
     copyText: "复制文字",
@@ -36,7 +36,7 @@ const STRINGS = {
     saveDialogFailed: "打开保存对话框失败：",
     notFile: "拖入的不是文件，或系统未提供路径。",
     dragNotEnabled: "拖拽监听未启用：",
-    startLog: "开始识别：",
+    startLog: "开始处理：",
     saveDefault: "-searchable",
   },
   en: {
@@ -47,7 +47,7 @@ const STRINGS = {
     dropSub2: "An image is wrapped into a one-page searchable PDF; born-digital pages are skipped untouched",
     imageDone: (s) =>
       `Wrapped the image into <b>a one-page searchable PDF</b> with ${s.lines} lines of text.`,
-    go: "Recognise",
+    exportPdf: "Export PDF",
     cancel: "Cancel",
     exportTxt: "Export TXT",
     copyText: "Copy text",
@@ -75,7 +75,7 @@ const STRINGS = {
     saveDialogFailed: "Could not open the save dialog: ",
     notFile: "That drop was not a file, or the system gave no path.",
     dragNotEnabled: "Drag-and-drop listener unavailable: ",
-    startLog: "Recognising: ",
+    startLog: "Processing: ",
     saveDefault: "-searchable",
   },
 };

@@ -150,6 +150,31 @@ el("go").addEventListener("click", async () => {
   setRunning(false);
 });
 
+// 复制到剪贴板。Tauri 的 tauri:// 源在 WKWebView 里不算安全上下文，
+// navigator.clipboard 常常直接是 undefined，所以先试标准 API，
+// 不行就退回隐藏 textarea + execCommand。
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return "clipboard-api";
+    } catch (err) {
+      log("剪贴板 API 失败，改用兜底：" + err);
+    }
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.top = "-1000px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(ta);
+  if (!ok) throw new Error("execCommand('copy') 被拒绝");
+  return "execCommand";
+}
+
 el("cancel").addEventListener("click", () => invoke("ocr_cancel"));
 
 // 导出 TXT：原生页用自带文字，扫描页与图片走识别。
@@ -184,7 +209,7 @@ el("copy").addEventListener("click", async () => {
   log(tr().startLog + inputPath);
   try {
     const s = await invoke("extract_text", { input: inputPath });
-    await navigator.clipboard.writeText(s.text);
+    await copyToClipboard(s.text);
     log(tr().copied(s.chars));
     el("done").style.display = "block";
     el("done").innerHTML = tr().copied(s.chars);
