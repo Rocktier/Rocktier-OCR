@@ -146,6 +146,8 @@ fn text_layer(
     let mut placed: Vec<serde_json::Value> = Vec::new();
     // (y0, y1, right edge) of what has been drawn, used to nudge words apart.
     let mut extents: Vec<(f64, f64, f64)> = Vec::new();
+    // (x0, x1, bottom edge) of vertical runs, same idea along the other axis.
+    let mut v_extents: Vec<(f64, f64, f64)> = Vec::new();
 
     for block in blocks {
         let text = block["text"].as_str().unwrap_or("");
@@ -168,6 +170,27 @@ fn text_layer(
         if words.is_empty() {
             continue;
         }
+
+        // Reading direction. A scan saved sideways (no /Rotate, image stored
+        // turned) yields tall narrow line boxes - the engine straightens each
+        // line before recognising, so the text comes back perfect and the
+        // geometry sideways. Drawing such a line as horizontal text crushes it
+        // into the sliver's width and the extractor drops the overlapped
+        // glyphs, so the direction is honoured with a rotated text matrix.
+        //
+        // The quad itself cannot be asked for the direction: measured on a
+        // CamScanner page, vertical lines come back as axis-aligned rectangles
+        // in raster order (tl, tr, br, bl), so p0 -> p1 is the short edge. The
+        // bbox shape decides instead, with a ratio and a length guard so a
+        // narrow glyph such as a lone "1" is never mistaken for a column.
+        // Vertical CJK reads top to bottom; glyphs grow toward +x off the
+        // baseline at the strip's left edge.
+        let vertical = (y1 - y0) > (x1 - x0) * 2.0 && text.chars().count() > 1;
+        let (dirx, diry, upx, upy) = if vertical {
+            (0.0, -1.0, 1.0, 0.0)
+        } else {
+            (1.0, 0.0, 0.0, 1.0)
+        };
 
         // Prefer the word boxes the engine measured. They carry each word's real
         // width and the real gap that follows it, so nothing has to be estimated.
@@ -196,6 +219,52 @@ fn text_layer(
                     let wx1 = wxs.iter().cloned().fold(f64::MIN, f64::max);
                     let wy0 = wys.iter().cloned().fold(f64::MAX, f64::min);
                     let wy1 = wys.iter().cloned().fold(f64::MIN, f64::max);
+                    if vertical {
+                        // A sideways line: the box's width is the line's
+                        // thickness, its height the run the text travels. The
+                        // baseline sits on the side the glyphs grow from, and
+                        // reading starts where reading starts.
+                        //
+                        // Overlapping strips are real: the detector's boxes for
+                        // stacked header cells share the same narrow column, and
+                        // PDFium silently drops invisible text that overlaps
+                        // other invisible text (poppler keeps it, which is how
+                        // this passed the first real-scan run). So vertical
+                        // words get the same nudging the horizontal ones do,
+                        // along the run instead of across it.
+                        let thick = (wx1 - wx0).max(1.0);
+                        let mut run_top = wy0;
+                        let run = wy1 - wy0;
+                        let min_gap = char_width(' ') / 1000.0 * thick;
+                        let max_nudge = 2.0 * thick;
+                        for &(vx0, vx1, vbottom) in &v_extents {
+                            if wx0 < vx1 - 0.01 && wx1 > vx0 + 0.01 && run_top < vbottom {
+                                let need = vbottom + min_gap - run_top;
+                                if need > 0.0 && need <= max_nudge {
+                                    run_top = vbottom + min_gap;
+                                }
+                            }
+                        }
+                        let natural = word_units(wt) / 1000.0 * thick;
+                        let stretch = if natural > 0.01 { run / natural } else { 1.0 };
+                        let ex = if upx > 0.0 { wx0 } else { wx1 };
+                        let ey = if diry < 0.0 { ph - run_top } else { ph - (run_top + run) };
+                        content.push_str(&format!("/F0 {thick:.2} Tf\n{:.3} Tz\n", stretch * 100.0));
+                        placed.push(serde_json::json!({
+                            "page": page,
+                            "text": wt,
+                            "x0": wx0,
+                            "x1": wx1,
+                            "y0": run_top,
+                            "y1": run_top + run,
+                        }));
+                        let codes: String = wt.encode_utf16().map(|u| format!("{u:04X}")).collect();
+                        content.push_str(&format!(
+                            "{dirx:.4} {diry:.4} {upx:.4} {upy:.4} {ex:.2} {ey:.2} Tm\n<{codes}> Tj\n"));
+                        v_extents.push((wx0, wx1, run_top + run));
+                        continue;
+                    }
+
                     let wsize = (wy1 - wy0).max(1.0);
 
                     // Render the word at exactly the width the engine measured.
@@ -241,6 +310,45 @@ fn text_layer(
                 content.push('\n');
                 continue;
             }
+        }
+
+        if vertical {
+            // No measured word boxes on a sideways line: the same approximation
+            // the horizontal estimate path makes, one run spread across the box,
+            // just along the reading direction. Nudged like the measured path.
+            let thick = (x1 - x0).max(1.0);
+            let run = y1 - y0;
+            let mut run_top = y0;
+            let min_gap = char_width(' ') / 1000.0 * thick;
+            let max_nudge = 2.0 * thick;
+            for &(vx0, vx1, vbottom) in &v_extents {
+                if x0 < vx1 - 0.01 && x1 > vx0 + 0.01 && run_top < vbottom {
+                    let need = vbottom + min_gap - run_top;
+                    if need > 0.0 && need <= max_nudge {
+                        run_top = vbottom + min_gap;
+                    }
+                }
+            }
+            let joined = words.join(" ");
+            let natural = word_units(&joined) / 1000.0 * thick;
+            let stretch = if natural > 0.01 { run / natural } else { 1.0 };
+            let ex = if upx > 0.0 { x0 } else { x1 };
+            let ey = if diry < 0.0 { ph - run_top } else { ph - (run_top + run) };
+            let codes: String = joined.encode_utf16().map(|u| format!("{u:04X}")).collect();
+            content.push_str(&format!(
+                "/F0 {thick:.2} Tf\n{:.3} Tz\n{dirx:.4} {diry:.4} {upx:.4} {upy:.4} {ex:.2} {ey:.2} Tm\n<{codes}> Tj\n",
+                stretch * 100.0));
+            placed.push(serde_json::json!({
+                "page": page,
+                "text": joined,
+                "x0": x0,
+                "x1": x1,
+                "y0": run_top,
+                "y1": run_top + run,
+            }));
+            v_extents.push((x0, x1, run_top + run));
+            content.push('\n');
+            continue;
         }
 
         let _width = x1 - x0;
