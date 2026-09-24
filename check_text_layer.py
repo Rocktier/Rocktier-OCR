@@ -16,6 +16,7 @@ import json
 import pathlib
 import re
 import shutil
+import os
 import subprocess
 
 from collections import Counter
@@ -23,6 +24,9 @@ from collections import Counter
 ROOT = pathlib.Path(__file__).resolve().parent
 
 import reading_order  # noqa: E402  (same directory)
+
+# 验收要做几何比对（判据 6），写出器默认不留 sidecar，这里打开。
+os.environ["ROCKTIER_OCR_BOXES"] = "1"
 WRITER = ROOT / "writer/target/release/write-searchable"
 
 

@@ -772,11 +772,27 @@ pub fn layer_on_existing(
         doc.add_page_contents(*page_id, content.into_bytes())?;
     }
 
-    // Sidecar beside the PDF. Criterion 6 is a geometric comparison, and it
-    // cannot be made without knowing where the words actually went.
-    fs::write(format!("{out}.boxes.json"), serde_json::to_vec(&all_placed)?)?;
+    write_boxes_sidecar(out, &all_placed)?;
     doc.compress();
     doc.save(out)?;
+    Ok(())
+}
+
+/// Where the words actually went, written beside the PDF - but only when
+/// asked for. Criterion 6 is a geometric comparison and cannot be made
+/// without it, which is why it exists at all; a file nobody requested landing
+/// next to the user's document is a defect, so the acceptance harness turns it
+/// on with ROCKTIER_OCR_BOXES=1 and everyone else never sees it.
+fn write_boxes_sidecar(
+    out: &str,
+    placed: &[serde_json::Value],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("ROCKTIER_OCR_BOXES")
+        .map(|v| v != "0" && !v.is_empty())
+        .unwrap_or(false)
+    {
+        fs::write(format!("{out}.boxes.json"), serde_json::to_vec(placed)?)?;
+    }
     Ok(())
 }
 
@@ -819,8 +835,7 @@ pub fn write_from_image(
         format!("q\n{pw:.2} 0 0 {ph:.2} 0 0 cm\n/Im0 Do\nQ\n");
     content.push_str(&layer);
 
-    fs::write(format!("{out}.boxes.json"), serde_json::to_vec(&placed)?)?;
-
+    write_boxes_sidecar(out, &placed)?;
     let content_id = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
     let page_id = doc.add_object(dictionary! {
         "Type" => "Page",

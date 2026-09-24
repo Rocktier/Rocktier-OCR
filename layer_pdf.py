@@ -13,10 +13,14 @@ and cannot go missing.
 import argparse
 import json
 import pathlib
+import os
 import subprocess
 import sys
 
 import baseline
+
+# 验收要做几何比对（判据 6），写出器默认不留 sidecar，这里打开。
+os.environ["ROCKTIER_OCR_BOXES"] = "1"
 
 ROOT = pathlib.Path(__file__).resolve().parent
 WRITER = ROOT / "writer/target/release/write-searchable"
