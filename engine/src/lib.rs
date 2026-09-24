@@ -2,6 +2,9 @@
 //! driven by ONNX Runtime directly. The Python engine stays the reference;
 //! this crate is the product.
 
+pub mod cls;
 pub mod det;
+pub mod pipeline;
+pub mod rec;
 
-pub use det::{boxes_from_bitmap, detect, preprocess, DetParams, TextBox};
+pub use pipeline::{OcrLine, Pipeline};
