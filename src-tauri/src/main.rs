@@ -11,6 +11,7 @@ fn main() {
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::ocr_process,
+            commands::extract_text,
             commands::ocr_cancel,
         ])
         .run(tauri::generate_context!())

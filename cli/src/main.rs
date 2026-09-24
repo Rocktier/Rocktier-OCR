@@ -5,7 +5,7 @@
 //! are rasterised through pdfium, recognised, and layered through the writer
 //! library, with `replace` stripping any dead text the scan was hiding.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use pdfium_render::prelude::*;
 use std::path::{Path, PathBuf};
 
@@ -87,8 +87,44 @@ fn blocks_json(lines: &[ocr_engine::OcrLine]) -> serde_json::Value {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        anyhow::bail!("usage: ocr-cli <input.pdf> <out.pdf> [--dpi 200]");
+        anyhow::bail!("usage: ocr-cli <input.pdf> <out.pdf> [--dpi 200] [--txt <out.txt>]");
     }
+    // Text extraction: born-digital pages give up their own text, scan pages
+    // and images are recognised first.
+    if let Some(pos) = args.iter().position(|a| a == "--txt") {
+        let out_txt = args.get(pos + 1).context("--txt needs a path")?;
+        let mut pipe = build_pipeline()?;
+        let input = Path::new(&args[1]);
+        let mut text = String::new();
+        if input.to_string_lossy().to_lowercase().ends_with(".pdf") {
+            let pdfium = bind_pdfium()?;
+            let doc = pdfium.load_pdf_from_file(input, None)?;
+            for i in 0..doc.pages().len() {
+                let page = doc.pages().get(i as i32)?;
+                let page_text = if page.text()?.chars().len() >= 10 {
+                    eprintln!("  页 {}: 自带文字层", i + 1);
+                    page.text()?.all()
+                } else {
+                    eprintln!("  页 {}: 无文字层，识别中…", i + 1);
+                    let width_px = (page.width().value as f64 * 200.0 / 72.0).round() as i32;
+                    let config = PdfRenderConfig::new().set_target_width(width_px.max(32));
+                    let img = page.render_with_config(&config)?.as_image()?;
+                    let lines = pipe.run(&img)?;
+                    lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")
+                };
+                text.push_str(&format!("\n\n--- Page {} ---\n\n", i + 1));
+                text.push_str(page_text.trim());
+            }
+        } else {
+            let img = image::open(input)?;
+            let lines = pipe.run(&img)?;
+            text.push_str(&lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+        }
+        std::fs::write(out_txt, text.as_bytes())?;
+        eprintln!("  ✅ TXT 已导出: {out_txt}（{} 页，{} 字符）", text.matches("--- Page").count(), text.chars().count());
+        return Ok(());
+    }
+
     let input = Path::new(&args[1]);
     let out = Path::new(&args[2]);
     let dpi = args

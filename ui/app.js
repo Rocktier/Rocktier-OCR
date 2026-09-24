@@ -27,6 +27,8 @@ function setRunning(on) {
   running = on;
   el("go").disabled = on || !inputPath;
   el("cancel").disabled = !on;
+  el("txt").disabled = on || !inputPath;
+  el("copy").disabled = on || !inputPath;
   el("bar-wrap").style.display = on ? "block" : "none";
   if (on) el("status").textContent = tr().preparing;
 }
@@ -149,6 +151,48 @@ el("go").addEventListener("click", async () => {
 });
 
 el("cancel").addEventListener("click", () => invoke("ocr_cancel"));
+
+// 导出 TXT：原生页用自带文字，扫描页与图片走识别。
+el("txt").addEventListener("click", async () => {
+  if (!inputPath || running) return;
+  let out;
+  try {
+    out = await save({
+      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + "-text.txt",
+      filters: [{ name: tr().txtName, extensions: ["txt"] }],
+    });
+  } catch (err) {
+    log(tr().saveDialogFailed + err);
+    return;
+  }
+  if (!out) return;
+  log(tr().startLog + inputPath);
+  try {
+    const s = await invoke("extract_text", { input: inputPath, output: out });
+    el("done").style.display = "block";
+    el("done").innerHTML = tr().exportDone(s) + `<br><span class="out">${out}</span>`;
+    log(tr().exportDone(s));
+  } catch (err) {
+    log(tr().exportFailed + err);
+    el("status").textContent = tr().statusFailed;
+  }
+});
+
+// 复制全文：同一份文本进剪贴板。
+el("copy").addEventListener("click", async () => {
+  if (!inputPath || running) return;
+  log(tr().startLog + inputPath);
+  try {
+    const s = await invoke("extract_text", { input: inputPath });
+    await navigator.clipboard.writeText(s.text);
+    log(tr().copied(s.chars));
+    el("done").style.display = "block";
+    el("done").innerHTML = tr().copied(s.chars);
+  } catch (err) {
+    log(tr().copyFailed + err);
+    el("status").textContent = tr().statusFailed;
+  }
+});
 
 listen("ocr-progress", (e) => {
   const p = e.payload;

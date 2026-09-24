@@ -209,6 +209,91 @@ pub async fn ocr_process(
     .map_err(|e| e.to_string())?
 }
 
+/// The text of a document, page by page. Pages that already carry text give
+/// up theirs directly - re-recognising a born-digital page would only add
+/// noise - and pages that do not are recognised first. Used by the TXT export
+/// and by "copy everything".
+#[derive(Serialize)]
+pub struct TextResult {
+    text: String,
+    pages: usize,
+    lines: usize,
+    chars: usize,
+}
+
+fn page_separator(n: usize) -> String {
+    format!("\n\n--- Page {n} ---\n\n")
+}
+
+#[tauri::command(async)]
+pub async fn extract_text(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: String,
+    output: Option<String>,
+) -> Result<TextResult, String> {
+    let pipeline = state.pipeline.clone();
+    let app_for_pdf = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<TextResult, String> {
+        let is_pdf = input.to_lowercase().ends_with(".pdf");
+        let mut text = String::new();
+        let (mut pages, mut lines) = (0usize, 0usize);
+
+        if is_pdf {
+            let pdfium = pdf::init_pdfium(&app_for_pdf).map_err(|e| e.to_string())?;
+            let doc = pdfium
+                .load_pdf_from_file(Path::new(&input), None)
+                .map_err(|e| e.to_string())?;
+            let total = doc.pages().len() as usize;
+            for i in 0..total {
+                let _ = app.emit(
+                    "ocr-progress",
+                    Progress { page: i + 1, total, phase: "text".into() },
+                );
+                let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
+                let page_text = if pdf::page_text_len(&page) >= 10 {
+                    // Born-digital: the document already knows its words.
+                    page.text().map_err(|e| e.to_string())?.all()
+                } else {
+                    let img = pdf::render_page(&page, 200.0).map_err(|e| e.to_string())?;
+                    let found = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
+                        pipe.run(&img).map_err(|e| e.to_string())
+                    })?;
+                    found
+                        .iter()
+                        .map(|l| l.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                lines += page_text.lines().count().max(0);
+                pages += 1;
+                text.push_str(&page_separator(i + 1));
+                text.push_str(page_text.trim());
+            }
+        } else {
+            let _ = app.emit(
+                "ocr-progress",
+                Progress { page: 1, total: 1, phase: "text".into() },
+            );
+            let img = image::open(&input).map_err(|e| format!("无法打开图片：{e}"))?;
+            let found = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
+                pipe.run(&img).map_err(|e| e.to_string())
+            })?;
+            lines = found.len();
+            pages = 1;
+            text.push_str(&found.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+        }
+
+        if let Some(path) = output {
+            std::fs::write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let chars = text.chars().count();
+        Ok(TextResult { text, pages, lines, chars })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Ask the running job to stop at the next page boundary.
 #[tauri::command]
 pub fn ocr_cancel(state: State<'_, AppState>) {
