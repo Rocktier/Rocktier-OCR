@@ -5,72 +5,132 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rocktier OCR</title>
   <style>
+    /* 家族 token（与 Rocktier PDF 的 tokens.css 同一套） */
     :root {
-      --red: #e64537;
-      --ink: #1c1c1e;
-      --line: #e5e5e7;
-      --bg: #fafafa;
-      --muted: #86868b;
+      --bg-primary: #000000;
+      --bg-secondary: #0a0a0a;
+      --bg-elevated: #121212;
+      --bg-card: rgba(255, 255, 255, 0.03);
+      --bg-card-hover: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.15);
+      --text-primary: rgba(255, 255, 255, 0.95);
+      --text-secondary: rgba(255, 255, 255, 0.66);
+      --text-tertiary: rgba(255, 255, 255, 0.42);
+      --accent: #ffffff;
+      --accent-text: #000000;
+      --red: #ff4a3d;
+      --dot: rgba(255, 255, 255, 0.18);
+      --success: rgba(48, 209, 88, 0.95);
+      --radius: 12px;
     }
     * { box-sizing: border-box; margin: 0; }
     body {
-      font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
-      background: var(--bg); color: var(--ink);
-      height: 100vh; display: flex; flex-direction: column; user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+        "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
     }
-    header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); }
-    header h1 { font-size: 15px; font-weight: 600; letter-spacing: .2px; }
-    main { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 24px; overflow: auto; }
+
+    header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); flex: none; }
+    header h1 { font-size: 14.5px; font-weight: 600; letter-spacing: .2px; }
+    header .tag {
+      margin-left: auto; font-size: 11px; color: var(--text-tertiary);
+      letter-spacing: .3px;
+    }
+
+    main { flex: 1; padding: 22px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+
     #drop {
-      border: 1.5px dashed var(--line); border-radius: 12px; padding: 42px 24px;
-      text-align: center; transition: border-color .15s, background .15s; cursor: pointer;
+      border: 1px dashed var(--border-hover);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      padding: 44px 24px;
+      text-align: center;
+      transition: background .15s, border-color .15s;
+      cursor: pointer;
     }
-    #drop.over { border-color: var(--red); background: #fff; }
-    #drop .big { font-size: 16px; font-weight: 600; }
-    #drop .sub { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
-    #drop .path { font-size: 12px; margin-top: 12px; color: var(--ink); font-family: ui-monospace, monospace; word-break: break-all; }
-    .row { display: flex; gap: 10px; align-items: center; }
+    #drop:hover { background: var(--bg-card-hover); }
+    #drop.over { border-color: var(--red); background: var(--bg-card-hover); }
+    #drop .big { font-size: 15.5px; font-weight: 600; }
+    #drop .sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 7px; line-height: 1.6; }
+    #drop .path {
+      margin-top: 14px; font-size: 12px; color: var(--text-primary);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+    }
+
+    .row { display: flex; align-items: center; gap: 10px; }
     button {
-      font: inherit; font-size: 13.5px; padding: 9px 18px; border-radius: 8px;
-      border: 1px solid var(--line); background: #fff; cursor: pointer;
+      font: inherit; font-size: 13px; font-weight: 500;
+      padding: 8px 16px; border-radius: 9px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
+      transition: background .15s, border-color .15s;
     }
-    button.primary { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
-    button:disabled { opacity: .45; cursor: default; }
-    #bar-wrap { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; display: none; }
+    button:hover:not(:disabled) { background: var(--bg-card-hover); border-color: var(--border-hover); }
+    button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: rgba(255, 255, 255, .88); }
+    button:disabled { opacity: .4; cursor: default; }
+
+    #status { margin-left: auto; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+    #bar-wrap { height: 4px; background: var(--dot); border-radius: 2px; overflow: hidden; display: none; }
     #bar { height: 100%; width: 0%; background: var(--red); transition: width .2s; }
-    #log {
-      flex: 1; background: #fff; border: 1px solid var(--line); border-radius: 10px;
-      padding: 14px; font-family: ui-monospace, monospace; font-size: 12px;
-      overflow: auto; white-space: pre-wrap; color: #3a3a3c; display: none;
+
+    #done {
+      display: none; font-size: 13px; line-height: 1.7;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
     }
-    #done { display: none; font-size: 13.5px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-    #done b { color: var(--red); }
-    footer { padding: 10px 24px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--line); }
+    #done b { color: var(--success); font-weight: 600; }
+    #done .out { color: var(--text-secondary); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+
+    #log {
+      display: none; flex: 1; min-height: 90px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+      color: var(--text-secondary); overflow: auto; white-space: pre-wrap;
+    }
+
+    footer {
+      padding: 10px 22px; font-size: 11.5px; color: var(--text-tertiary);
+      border-top: 1px solid var(--border); background: var(--bg-secondary);
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="dot"></div>
     <h1>Rocktier OCR</h1>
+    <span class="tag">扫描件变可搜索</span>
   </header>
   <main>
     <div id="drop">
       <div class="big">把 PDF 拖到这里</div>
-      <div class="sub">扫描件与图片型 PDF 会被识别并加上可搜索的文字层；原生电子版会原样保留</div>
+      <div class="sub">扫描件与图片型 PDF 会被识别并加上可搜索的文字层<br>原生电子版整页跳过，一个字符都不动</div>
       <div class="path" id="path"></div>
     </div>
     <div class="row">
       <button id="go" class="primary" disabled>开始识别</button>
       <button id="cancel" disabled>取消</button>
-      <span style="flex:1"></span>
-      <span id="status" style="font-size:12.5px;color:var(--muted)"></span>
+      <span id="status"></span>
     </div>
     <div id="bar-wrap"><div id="bar"></div></div>
     <div id="done"></div>
     <div id="log"></div>
   </main>
-  <footer>识别在本机完成，文档不会上传。拖入或点击上方区域选择文件。</footer>
+  <footer>识别在本机完成，文档不会离开这台电脑。</footer>
   <script src="app.js"></script>
 </body>
 </html>
