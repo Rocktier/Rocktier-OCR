@@ -371,18 +371,115 @@ fn ensure_font(doc: &mut Document, page_id: ObjectId, font_id: ObjectId) -> Resu
 ///
 /// This is what makes the result a replacement rather than a second layer. The
 /// text-showing operators are simply dropped; the images and vector work around
-/// them are untouched, so the page still looks identical. Only the operators in
-/// the page's own content stream are considered - text inside a form XObject is
-/// left alone, which is a known limit rather than an oversight.
+/// them are untouched, so the page still looks identical.
+///
+/// The page's own content stream is not the only place text can live. Form
+/// XObjects carry it too, and scanner-produced "searchable PDFs" routinely wrap
+/// their OCR layer in one - leaving those alone would stack two layers exactly
+/// where a replacement was asked for. So the strip recurses through the page's
+/// XObjects and through each form's own resources, visiting every object at
+/// most once. Annotations are a separate tree and are still not touched; scans
+/// rarely carry text-bearing ones.
 fn strip_text(doc: &mut Document, page_id: ObjectId) -> Result<(), Box<dyn std::error::Error>> {
     let content = doc.get_and_decode_page_content(page_id)?;
     let kept: Vec<Operation> = content
         .operations
         .into_iter()
-        .filter(|op| !matches!(op.operator.as_str(), "Tj" | "TJ" | "'" | "\""))
+        .filter(|op| !is_text_showing(op))
         .collect();
     let bytes = Content { operations: kept }.encode()?;
     doc.change_page_content(page_id, bytes)?;
+
+    let mut visited: Vec<ObjectId> = Vec::new();
+    let entries = page_xobject_entries(doc, page_id);
+    strip_form_entries(doc, entries, &mut visited)
+}
+
+/// The four operators that put glyphs on the page.
+fn is_text_showing(op: &Operation) -> bool {
+    matches!(op.operator.as_str(), "Tj" | "TJ" | "'" | "\"")
+}
+
+/// Every XObject the page can name, collected up front: the resource dictionary
+/// is borrowed from the document, and stripping mutates the document.
+fn page_xobject_entries(doc: &Document, page_id: ObjectId) -> Vec<Object> {
+    let xobj = match doc.get_page_resources(page_id) {
+        Ok((Some(res), _)) => res.get(b"XObject").ok().cloned(),
+        _ => None,
+    };
+    match xobj {
+        Some(Object::Dictionary(d)) => d.iter().map(|(_, v)| v.clone()).collect(),
+        Some(Object::Reference(r)) => doc
+            .get_object(r)
+            .and_then(Object::as_dict)
+            .map(|d| d.iter().map(|(_, v)| v.clone()).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn strip_form_entries(
+    doc: &mut Document,
+    entries: Vec<Object>,
+    visited: &mut Vec<ObjectId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in entries {
+        let id = match entry {
+            Object::Reference(id) => id,
+            // A stream stored directly in the resource dictionary has no id to
+            // memoise and no producer in this corpus writes one; skipping beats
+            // half-handling it.
+            _ => continue,
+        };
+        if visited.contains(&id) {
+            continue;
+        }
+        visited.push(id);
+
+        let stream = match doc.get_object(id).ok().and_then(|o| o.as_stream().ok()) {
+            Some(s) if s.dict.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Form") => s,
+            _ => continue, // images and anything else: not text carriers to strip
+        };
+        let plain = stream.get_plain_content()?;
+        if let Ok(content) = Content::decode(&plain) {
+            let kept: Vec<Operation> = content
+                .operations
+                .into_iter()
+                .filter(|op| !is_text_showing(op))
+                .collect();
+            let bytes = Content { operations: kept }.encode()?;
+            if let Object::Stream(st) = doc.get_object_mut(id)? {
+                st.set_plain_content(bytes);
+            }
+        }
+
+        // A form may draw further forms through its own /Resources.
+        let nested = doc
+            .get_object(id)
+            .ok()
+            .and_then(|o| o.as_stream().ok())
+            .and_then(|s| s.dict.get(b"Resources").ok().cloned())
+            .and_then(|res| match res {
+                Object::Dictionary(d) => d.get(b"XObject").ok().cloned(),
+                Object::Reference(r) => doc
+                    .get_object(r)
+                    .ok()
+                    .and_then(|o| o.as_dict().ok().cloned())
+                    .and_then(|d| d.get(b"XObject").ok().cloned()),
+                _ => None,
+            })
+            .map(|xobj| match xobj {
+                Object::Dictionary(d) => d.iter().map(|(_, v)| v.clone()).collect(),
+                Object::Reference(r) => doc
+                    .get_object(r)
+                    .and_then(Object::as_dict)
+                    .map(|d| d.iter().map(|(_, v)| v.clone()).collect())
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default();
+        strip_form_entries(doc, nested, visited)?;
+    }
     Ok(())
 }
 
