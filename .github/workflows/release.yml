@@ -224,7 +224,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' \) -print0 > installers.nul
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' -o -name '*.msi' \) -print0 > installers.nul
           count=$(tr -cd '\0' < installers.nul | wc -c)
           echo "Found $count installer(s)"
           if [ "$count" -eq 0 ]; then
