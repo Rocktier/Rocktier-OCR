@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build macOS (Apple Silicon)
     # macOS，不是 ubuntu：Tauri 的 crate 在 Linux 上要 gtk/webkit 等系统库。
     runs-on: macos-latest
     permissions:
@@ -25,8 +25,12 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             label: Apple Silicon
-          - target: x86_64-apple-darwin
-            label: Intel
+        # Intel mac 不做，这是查证过的上游现实而不是偷懒：
+        # ① ort 的预编译表（dist.tsv）里 macOS 只有 arm64；
+        # ② 微软官方 ONNX Runtime 从 v1.28.0 起只发 osx-arm64，Intel mac 没有产物；
+        # ③ 家族 PDF 产品同样只出 Apple Silicon。给一个 6 年老平台自己编译
+        #    ORT 源码或引入 tract 后端，都不值。Windows x64 才是跨平台的主战场，
+        #    那边 ort 有 x86_64-pc-windows-msvc 的预编译库。
     steps:
       - uses: actions/checkout@v4
 
