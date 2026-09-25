@@ -67,7 +67,8 @@ pub fn render_page(page: &PdfPage, dpi: f64) -> Result<image::DynamicImage> {
 
 /// The models directory, resource dir first, measurement venv second.
 pub fn model_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("OCR_MODELS_DIR") {
+        let mut tried: Vec<String> = Vec::new();
+if let Ok(p) = std::env::var("OCR_MODELS_DIR") {
         return Ok(PathBuf::from(p));
     }
     // Same reasoning as the pdfium path: the compiled-in directory is the one
@@ -76,15 +77,26 @@ pub fn model_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
     if baked.join("ch_PP-OCRv4_det_infer.onnx").exists() {
         return Ok(baked);
     }
+    tried.push(baked.display().to_string());
     if let Ok(dir) = app.path().resource_dir() {
-        let candidate = dir.join("models");
-        if candidate.join("ch_PP-OCRv4_det_infer.onnx").exists() {
-            return Ok(candidate);
+            // Bundled resources keep their repo-relative path, which differs
+            // by platform: "resources/models" under the install root on
+            // Windows, "Contents/Resources/resources/models" on macOS. Try
+            // both shapes; a miss here once cost a whole test round-trip
+            // with no clue in the error.
+            for candidate in [dir.join("resources/models"), dir.join("models")] {
+                if candidate.join("ch_PP-OCRv4_det_infer.onnx").exists() {
+                    return Ok(candidate);
+                }
+            }
+            tried.push(dir.display().to_string());
         }
-    }
     let dev = Path::new("../.venv-ocr/lib/python3.12/site-packages/rapidocr_onnxruntime/models");
     if dev.join("ch_PP-OCRv4_det_infer.onnx").exists() {
         return Ok(dev.to_path_buf());
     }
-    Err(anyhow::anyhow!("no OCR models directory found"))
+    Err(anyhow::anyhow!(
+            "no OCR models directory found; tried: {}",
+            tried.join("; ")
+        ))
 }

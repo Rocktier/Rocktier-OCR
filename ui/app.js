@@ -53,8 +53,9 @@ async function pickFile() {
     const p = await open({
       multiple: false,
       filters: [
+        { name: "PDF & Images", extensions: ["pdf", "png", "jpg", "jpeg"] },
         { name: "PDF", extensions: ["pdf"] },
-        { name: "Image", extensions: ["png", "jpg", "jpeg"] },
+        { name: "Images", extensions: ["png", "jpg", "jpeg"] },
       ],
     });
     if (p) setPath(p);
