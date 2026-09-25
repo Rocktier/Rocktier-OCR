@@ -2,8 +2,10 @@ name: Release
 
 # 打 tag 即发布：构建 macOS 安装包并挂到对应的 GitHub Release。
 #
-# 第一个版本只出一个目标（Apple Silicon）。先在自家机器上把分发链路跑通，
-# Intel 目标随后加 —— 多一个 --target 而已，不必在第一版就赌两条腿。
+# 两个架构一起出（矩阵）。签名与公证是**条件性**的：仓库配了
+# APPLE_CERT_P12 等密钥就签 + 公证，没配就 ad-hoc 出包 —— 家族 PDF 产品
+# 的 scar 在这里沿用：tauri 打 dmg 用的是**还没签**的 bundle，签完必须把
+# app 塞回镜像重压缩，否则下载者看到 "damaged"（v1.0.10 的教训）。
 on:
   push:
     tags:
@@ -12,18 +14,25 @@ on:
 
 jobs:
   build:
-    name: Build macOS installer (Apple Silicon)
-    # macOS，不是 ubuntu：Tauri 的 crate 在 Linux 上要 gtk/webkit 等系统库，
-    # 裸 runner 没有 —— 家族在别的产品上已经踩过这个。
+    name: Build ${{ matrix.target }}
+    # macOS，不是 ubuntu：Tauri 的 crate 在 Linux 上要 gtk/webkit 等系统库。
     runs-on: macos-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            label: Apple Silicon
+          - target: x86_64-apple-darwin
+            label: Intel
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - uses: actions/setup-node@v4
         with:
@@ -39,29 +48,107 @@ jobs:
         run: npm install
 
       - name: Build
-        run: npm run tauri -- build --target aarch64-apple-darwin
+        run: npm run tauri -- build --target ${{ matrix.target }}
+
+      - name: Sign and seal
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bundle="src-tauri/target/${{ matrix.target }}/release/bundle"
+          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -1)
+          dmg=$(find "$bundle/dmg" -name '*.dmg' | head -1)
+          test -n "$app" && test -n "$dmg" || { echo "::error::build output missing"; exit 1; }
+
+          sign_app=(-s -)
+          if [ -n "${APPLE_CERT_P12:-}" ]; then
+            # 一次性钥匙串；set-key-partition-list 让 codesign 不弹窗就能用私钥。
+            keychain="$RUNNER_TEMP/rocktier-signing.keychain-db"
+            echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security create-keychain -p "" "$keychain"
+            security set-keychain-settings -lut 900 "$keychain"
+            security unlock-keychain -p "" "$keychain"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+              -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -k "" "$keychain" >/dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+            identity=$(security find-identity -v -p codesigning "$keychain" \
+              | awk '/Developer ID Application/ {print $2; exit}')
+            if [ -z "$identity" ]; then
+              echo "::error::APPLE_CERT_P12 is set but has no Developer ID Application identity."
+              exit 1
+            fi
+            echo "signing as $identity"
+            # hardened runtime 是公证的前提；entitlements 里那条
+            # disable-library-validation 是随包 pdfium 能加载的前提。
+            sign_app=(-s "$identity" --options runtime --entitlements src-tauri/Entitlements.plist)
+          else
+            echo "::notice::No Developer ID certificate configured - ad-hoc signing. Downloaded copies will be flagged by Gatekeeper."
+          fi
+
+          codesign "${sign_app[@]}" -fv --deep "$app"
+
+          # DMG 里的 app 是 tauri 从未签 bundle 封进去的 —— 换掉、重压缩，
+          # 再把镜像本身也签一遍。
+          work=$(mktemp -d)
+          hdiutil convert "$dmg" -format UDRW -o "$work/rw.dmg" -quiet
+          mnt="$work/m"
+          mkdir -p "$mnt"
+          hdiutil attach "$work/rw.dmg" -readwrite -nobrowse -mountpoint "$mnt" -quiet
+          rm -rf "$mnt/$(basename "$app")"
+          cp -R "$app" "$mnt/"
+          hdiutil detach "$mnt" -quiet
+          hdiutil convert "$work/rw.dmg" -format UDZO -o "$work/signed.dmg" -quiet
+          mv "$work/signed.dmg" "$dmg"
+          rm -rf "$work"
+
+          if [ -n "${APPLE_CERT_P12:-}" ]; then
+            # 公证镜像（覆盖里面那个 app），然后 staple，让票据跟文件走、离线可验。
+            codesign -s "$identity" -fv "$dmg"
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          else
+            codesign -s - -fv "$dmg"
+          fi
+          codesign -dvvv "$dmg" 2>&1 | grep 'Signature=' || true
 
       - name: Collect installers
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
-          dmg=$(find "$bundle/dmg" -name '*.dmg' 2>/dev/null | head -1)
-          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' 2>/dev/null | head -1)
-          if [ -z "$dmg" ]; then
-            echo "::error::no dmg was produced" >&2
-            exit 1
-          fi
+          bundle="src-tauri/target/${{ matrix.target }}/release/bundle"
+          dmg=$(find "$bundle/dmg" -name '*.dmg' | head -1)
+          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -1)
           cp "$dmg" artifacts/
-          if [ -n "$app" ]; then
-            ditto -c -k --keepParent "$app" "artifacts/$(basename "$app").zip"
-          fi
+          ditto -c -k --keepParent "$app" "artifacts/$(basename "$app").zip"
           ls -la artifacts
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-aarch64
+          name: macos-${{ matrix.target }}
           path: artifacts/*
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Publish to the release
         env:
@@ -79,8 +166,8 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
-          # 上传失败不能被吞掉：早先那种 `cmd && break || sleep` 的写法，
-          # 在每次都失败时会把退出码留在 0，job 报绿而 Release 里空无一物。
+          # 上传失败不能被吞掉：每次都失败时退出码必须不是 0，
+          # 否则 job 报绿而 Release 里空无一物。
           uploaded=0
           for i in $(seq 1 5); do
             if xargs -0 -r gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber < installers.nul; then
