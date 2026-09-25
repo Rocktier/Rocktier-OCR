@@ -174,7 +174,8 @@ jobs:
         run: node scripts/fetch-pdfium.mjs windows-x64
 
       - name: Init store bundle
-        run: npx tauri-windows-bundle init -p src-tauri --scale
+        # 从仓库根跑：工具自己找 src-tauri（家族 PDF 亦然），-p 传子目录反而找不到项目根
+        run: npx tauri-windows-bundle init --scale
 
       # 占位身份即可构建测试；上架前以 Partner Center 分配值重跑（tag 时传入）。
       - name: Configure store identity

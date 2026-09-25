@@ -28,7 +28,8 @@ const PUBLISHER = 'CN=4EA39D7A-401B-4D56-98D0-8ECB1F2B8DF7';
 const PUBLISHER_DISPLAY = 'Rocktier';
 const EXECUTABLE = 'RocktierOCR';
 
-const identityName = process.argv[2] || 'PLACEHOLDER.Set.From.PartnerCenter';
+// Partner Center 为本产品分配的身份（用户提供，2026-09-25）。
+const identityName = process.argv[2] || 'Rocktier.RocktierOCR';
 
 const configPath = join(GEN, 'bundle.config.json');
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
