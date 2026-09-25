@@ -142,9 +142,63 @@ jobs:
           name: macos-${{ matrix.target }}
           path: artifacts/*
 
+
+  build-windows:
+    name: Build Windows installer
+    # Windows 的构建只在这台 runner（或用户家里的 Windows 电脑）上发生，
+    # 绝不在 Mac 上 —— 这是用户定下的纪律。
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install CLI tooling
+        run: npm install
+
+      # 只取 Windows 那份 pdfium（脚本按平台落盘，名字与加载器一致）。
+      - name: Fetch Pdfium (windows-x64)
+        run: node scripts/fetch-pdfium.mjs windows-x64
+
+      - name: Init store bundle
+        run: npx tauri-windows-bundle init -p src-tauri --scale
+
+      # 占位身份即可构建测试；上架前以 Partner Center 分配值重跑（tag 时传入）。
+      - name: Configure store identity
+        run: node scripts/configure-store-identity.mjs
+
+      - name: Build msix
+        run: npx tauri-windows-bundle build --runner npm --verbose
+
+      - name: Collect installers
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          find src-tauri/target/msix -maxdepth 1 \( -name '*.msix' -o -name '*.msixbundle' \) -exec cp {} artifacts/ \;
+          ls -la artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: artifacts/*
+
+
   publish:
     name: Publish release
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -159,7 +213,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' \) -print0 > installers.nul
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' \) -print0 > installers.nul
           count=$(tr -cd '\0' < installers.nul | wc -c)
           echo "Found $count installer(s)"
           if [ "$count" -eq 0 ]; then
