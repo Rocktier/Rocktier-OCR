@@ -8,7 +8,7 @@
     "tauri:windows:build": "tauri-windows-bundle build --runner npm"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@choochmeque/tauri-windows-bundle": "^0.1.29"
+    "@choochmeque/tauri-windows-bundle": "^0.1.29",
+    "@tauri-apps/cli": "^2"
   }
 }
