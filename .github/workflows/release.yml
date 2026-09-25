@@ -184,11 +184,18 @@ jobs:
       - name: Build msix
         run: npx tauri-windows-bundle build --runner npm --verbose
 
+      # 顺手出一个 msi：未签名也能双击安装，是 Windows 上做功能测试
+      # 最省事的载体（msix 未签名侧载要先装证书，太麻烦）。编译产物
+      # 与上一步同目录，这一步只做增量编译加打包。
+      - name: Build msi
+        run: npm run tauri -- build --bundles msi
+
       - name: Collect installers
         run: |
           set -euo pipefail
           mkdir -p artifacts
           find src-tauri/target/msix -maxdepth 1 \( -name '*.msix' -o -name '*.msixbundle' \) -exec cp {} artifacts/ \;
+          find src-tauri/target/release/bundle/msi -name '*.msi' -exec cp {} artifacts/ \; 2>/dev/null || true
           ls -la artifacts
 
       - uses: actions/upload-artifact@v4
