@@ -43,7 +43,11 @@
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
     }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); flex: none; }
+    .brand-mark { width: 26px; height: 26px; flex: none; }
+    .brand-mark .brand-tile { fill: #0a0a0a; stroke: var(--border); stroke-width: 1; }
+    .brand-mark .brand-letters { fill: #ffffff; font-family: inherit; }
+    .brand-mark .brand-badge { fill: #ffffff; }
+    .brand-mark .brand-pip { fill: var(--red); }
     header h1 { font-size: 14.5px; font-weight: 600; letter-spacing: .2px; }
     header .tag {
       margin-left: auto; font-size: 11px; color: var(--text-tertiary);
@@ -115,7 +119,13 @@
 </head>
 <body>
   <header>
-    <div class="dot"></div>
+    <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect class="brand-tile" x="1" y="1" width="30" height="30" rx="8.5" />
+      <text class="brand-letters" x="17.5" y="17.4" font-size="10.5" font-weight="700" letter-spacing="-0.5" text-anchor="middle" dominant-baseline="central">OCR</text>
+      <circle class="brand-badge" cx="8.6" cy="8.6" r="4.6" />
+      <path d="M6.6 8.7l1.4 1.4 2.4-2.7" stroke="#0a0a0a" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <circle class="brand-pip" cx="25.8" cy="6.2" r="2.2" />
+    </svg>
     <h1 data-i18n="title">Rocktier OCR</h1>
     <span class="tag" data-i18n="tagline">扫描件变可搜索</span>
     <button id="lang" class="lang" title="中文 / EN">EN</button>
