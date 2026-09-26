@@ -43,6 +43,8 @@ const STRINGS = {
     dragNotEnabled: "拖拽监听未启用：",
     startLog: "开始处理：",
     saveDefault: "-searchable",
+    themeToLight: "切换到浅色",
+    themeToDark: "切换到深色",
   },
   en: {
     title: "Rocktier OCR",
@@ -87,6 +89,8 @@ const STRINGS = {
     dragNotEnabled: "Drag-and-drop listener unavailable: ",
     startLog: "Processing: ",
     saveDefault: "-searchable",
+    themeToLight: "Switch to light",
+    themeToDark: "Switch to dark",
   },
 };
 

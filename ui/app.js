@@ -117,6 +117,47 @@ listen("tauri://drag-drop", (e) => {
   setPath(paths.find((p) => isSupported(p)) || null);
 });
 
+// 原生菜单（家族规范第十三章）：挂载即按当前语言构建；applyLang 是挂在
+// window 上的函数声明，包一层即可在语言切换时重建（与 index.html 主题脚本
+// 的包装法一致，两层包装互不干扰）。
+function buildMenu() {
+  invoke("build_menu", { lang: current }).catch(() => {});
+}
+buildMenu();
+const origApplyLang = window.applyLang;
+window.applyLang = function () {
+  if (typeof origApplyLang === "function") origApplyLang();
+  buildMenu();
+};
+
+// 菜单自定义项 → 现有动作链。导出项直接点对应按钮：禁用态与"运行中"
+// 守卫都由按钮自身的逻辑把关，菜单项无需单独维护可用性。
+listen("menu-action", (e) => {
+  switch (e.payload) {
+    case "open":
+      pickFile();
+      break;
+    case "export-txt":
+      el("txt").click();
+      break;
+    case "export-pdf":
+      el("pdf").click();
+      break;
+    case "toggle-lang":
+      toggleLang();
+      break;
+    case "toggle-theme":
+      el("theme").click();
+      break;
+    case "website":
+      void invoke("open_url", { url: "https://rocktier.com/" }).catch(() => {});
+      break;
+    case "feedback":
+      void invoke("open_url", { url: "mailto:hello@rocktier.com" }).catch(() => {});
+      break;
+  }
+});
+
 el("go").addEventListener("click", async () => {
   if (!inputPath || running) return;
   setRunning(true);

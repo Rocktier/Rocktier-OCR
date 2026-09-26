@@ -4,6 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rocktier OCR</title>
+  <script>
+    // 主题必须在内联样式解析前定好：异步设置会先按默认深色画一帧再跳变。
+    // 默认跟随系统（家族 MD/Journal 同规则），手动选择记本机。
+    (function () {
+      try {
+        var saved = localStorage.getItem("rocktier-ocr-theme");
+        var t = saved === "light" || saved === "dark" ? saved : null;
+        if (!t)
+          t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        // 隐私模式：localStorage 抛异常时按深色渲染，功能不受影响
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
   <style>
     /* 家族 token（与 Rocktier PDF 的 tokens.css 同一套） */
     :root {
@@ -21,6 +37,25 @@
       --accent-text: #000000;
       --red: #ff4a3d;
       --dot: rgba(255, 255, 255, 0.18);
+      --success: rgba(48, 209, 88, 0.95);
+      --radius: 12px;
+    }
+    /* 浅色主题：值与 MD tokens.css 的浅色档逐项一致（家族基线） */
+    [data-theme="light"] {
+      --bg-primary: #e8e8e8;
+      --bg-secondary: #eeeeee;
+      --bg-elevated: #ffffff;
+      --bg-card: rgba(0, 0, 0, 0.03);
+      --bg-card-hover: rgba(0, 0, 0, 0.06);
+      --border: rgba(0, 0, 0, 0.08);
+      --border-hover: rgba(0, 0, 0, 0.16);
+      --text-primary: rgba(0, 0, 0, 0.95);
+      --text-secondary: rgba(0, 0, 0, 0.66);
+      --text-tertiary: rgba(0, 0, 0, 0.42);
+      --accent: #000000;
+      --accent-text: #ffffff;
+      --red: #ff4a3d;
+      --dot: rgba(0, 0, 0, 0.12);
       --success: rgba(48, 209, 88, 0.95);
       --radius: 12px;
     }
@@ -77,7 +112,7 @@
     .row { display: flex; align-items: center; gap: 10px; }
     button {
       font: inherit; font-size: 13px; font-weight: 500;
-      padding: 8px 16px; border-radius: 9px; cursor: pointer;
+      padding: 8px 16px; border-radius: var(--radius); cursor: pointer;
       border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
       transition: background .15s, border-color .15s;
     }
@@ -87,7 +122,7 @@
     button:disabled { opacity: .4; cursor: default; }
 
     button.lang {
-      margin-left: 10px; padding: 4px 9px; font-size: 11px; border-radius: 7px;
+      margin-left: 10px; padding: 4px 9px; font-size: 11px; border-radius: var(--radius);
       color: var(--text-secondary);
     }
     #status { margin-left: auto; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
@@ -129,6 +164,7 @@
     <h1 data-i18n="title">Rocktier OCR</h1>
     <span class="tag" data-i18n="tagline">扫描件变可搜索</span>
     <button id="lang" class="lang" title="中文 / EN">EN</button>
+    <button id="theme" class="lang" title="浅色 / 深色" aria-label="Theme">☾</button>
   </header>
   <main>
     <div id="drop">
@@ -155,5 +191,63 @@
   <footer data-i18n="footer">识别在本机完成，文档不会离开这台电脑。</footer>
   <script src="lang.js"></script>
   <script src="app.js"></script>
+  <script>
+    // Light/Dark 切换：默认跟随系统，手动切换后记本机（head 内联脚本负责首帧）。
+    (function () {
+      var KEY = "rocktier-ocr-theme";
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      function currentTheme() {
+        return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+      }
+      function sync() {
+        var dark = currentTheme() === "dark";
+        btn.textContent = dark ? "\u2600" : "\u263E"; // 深色态显示太阳=可去浅色
+        // lang.js 顶层 let current 暴露当前语言（zh / en），script 作用域内可直接引用
+        var lang = "en";
+        try {
+          if (typeof current === "string") lang = current;
+        } catch (e) {}
+        var s = typeof STRINGS !== "undefined" ? STRINGS[lang] || STRINGS.en : null;
+        var title = s
+          ? dark
+            ? s.themeToLight
+            : s.themeToDark
+          : dark
+            ? "Switch to light"
+            : "Switch to dark";
+        btn.title = title;
+        btn.setAttribute("aria-label", title);
+      }
+      if (window.matchMedia) {
+        var mq = window.matchMedia("(prefers-color-scheme: light)");
+        if (mq.addEventListener)
+          mq.addEventListener("change", function () {
+            try {
+              if (!localStorage.getItem(KEY)) sync();
+            } catch (e) {
+              sync();
+            }
+          });
+      }
+      btn.addEventListener("click", function () {
+        var next = currentTheme() === "dark" ? "light" : "dark";
+        try {
+          localStorage.setItem(KEY, next);
+        } catch (e) {
+          // 隐私模式：仅本次会话生效
+        }
+        document.documentElement.setAttribute("data-theme", next);
+        sync();
+      });
+      // 语言切换后刷新标题：applyLang 是挂 window 的函数声明，包一层即可同步
+      var origApplyLang = window.applyLang;
+      window.applyLang = function () {
+        if (typeof origApplyLang === "function") origApplyLang();
+        sync();
+      };
+      sync();
+    })();
+  </script>
 </body>
 </html>
