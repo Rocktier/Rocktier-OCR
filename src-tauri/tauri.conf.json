@@ -18,7 +18,7 @@
     ]
   },
   "productName": "Rocktier OCR",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "Rocktier.RocktierOCR",
   "app": {
     "windows": [
