@@ -18,6 +18,14 @@ function isSupported(name) {
   return SUPPORTED.some((ext) => name.toLowerCase().endsWith(ext));
 }
 
+// invoke 的 Err 可能是字符串、Error 实例或序列化对象；对对象直接拼接只会
+// 得到 "[object Object]"（真实事故：导出 PDF 失败时用户日志里只剩这行）。
+function errMsg(e) {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  return (e && e.message) || String(e);
+}
+
 function log(msg) {
   const box = el("log");
   box.style.display = "block";
@@ -60,7 +68,7 @@ async function pickFile() {
     });
     if (p) setPath(p);
   } catch (err) {
-    log(tr().dialogFailed + err);
+    log(tr().dialogFailed + errMsg(err));
   }
 }
 
@@ -106,7 +114,7 @@ async function bindDragDrop() {
     });
     void unlisten;
   } catch (err) {
-    log(tr().dragNotEnabled + err);
+    log(tr().dragNotEnabled + errMsg(err));
   }
 }
 bindDragDrop();
@@ -174,7 +182,7 @@ el("go").addEventListener("click", async () => {
     el("status").textContent = tr().statusDone;
   } catch (err) {
     const t = tr();
-    const msg = String(err);
+    const msg = errMsg(err);
     const wasCancelled = msg.includes("cancelled");
     log(wasCancelled ? t.cancelled : t.failed + msg);
     el("status").textContent = wasCancelled ? t.statusCancelled : t.statusFailed;
@@ -200,7 +208,7 @@ el("txt").addEventListener("click", async () => {
       filters: [{ name: tr().txtName, extensions: ["txt"] }],
     });
   } catch (err) {
-    log(tr().saveDialogFailed + err);
+    log(tr().saveDialogFailed + errMsg(err));
     return;
   }
   if (!out) return;
@@ -211,7 +219,7 @@ el("txt").addEventListener("click", async () => {
     el("done").innerHTML = tr().exportDone(s) + `<br><span class="out">${out}</span>`;
     log(tr().exportDone(s));
   } catch (err) {
-    log(tr().exportFailed + err);
+    log(tr().exportFailed + errMsg(err));
     el("status").textContent = tr().statusFailed;
   }
 });
@@ -226,7 +234,7 @@ el("copy").addEventListener("click", async () => {
     el("done").style.display = "block";
     el("done").innerHTML = tr().copied(s.chars);
   } catch (err) {
-    log(tr().copyFailed + err);
+    log(tr().copyFailed + errMsg(err));
     el("status").textContent = tr().statusFailed;
   }
 });
@@ -241,7 +249,7 @@ el("pdf").addEventListener("click", async () => {
       filters: [{ name: tr().pdfName, extensions: ["pdf"] }],
     });
   } catch (err) {
-    log(tr().saveDialogFailed + err);
+    log(tr().saveDialogFailed + errMsg(err));
     return;
   }
   if (!out) return;
@@ -252,7 +260,7 @@ el("pdf").addEventListener("click", async () => {
     log(tr().finished + out);
     el("status").textContent = tr().statusDone;
   } catch (err) {
-    log(tr().exportFailed + err);
+    log(tr().exportFailed + errMsg(err));
     el("status").textContent = tr().statusFailed;
   }
 });
