@@ -21,6 +21,23 @@
     })();
   </script>
   <style>
+/* Geist 家族品牌字体（2026-09-28 定案，audit 7B-5；SIL OFL 自托管可变字体） */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+
     /* 家族 token（与 Rocktier PDF 的 tokens.css 同一套） */
     :root {
       --bg-primary: #000000;
@@ -70,7 +87,7 @@
     }
     * { box-sizing: border-box; margin: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
+      font-family: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
         "Helvetica Neue", Arial, sans-serif;
       background: var(--bg-primary);
       color: var(--text-primary);
