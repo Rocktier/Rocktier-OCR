@@ -95,9 +95,9 @@ const STRINGS = {
 };
 
 const LANG_KEY = "rocktier-ocr-lang";
-let current =
-  localStorage.getItem(LANG_KEY) ||
-  (navigator.language.startsWith("zh") ? "zh" : "en");
+// 家族约定：无保存偏好时默认英文，不嗅探系统语言（与 Pic2Webp 一致）
+const _savedLang = localStorage.getItem(LANG_KEY);
+let current = _savedLang === "zh" || _savedLang === "en" ? _savedLang : "en";
 
 function tr() {
   return STRINGS[current] || STRINGS.en;
