@@ -222,6 +222,7 @@ jobs:
       - name: Publish to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRED_ASSETS: '\.dmg$ \.app\.zip$ \.msi$ \.msix$ \.msixbundle$'
         run: |
           set -euo pipefail
           find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' -o -name '*.msi' \) -print0 > installers.nul
@@ -232,7 +233,7 @@ jobs:
             exit 1
           fi
           if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
           # 上传失败不能被吞掉：每次都失败时退出码必须不是 0，
@@ -251,3 +252,18 @@ jobs:
             exit 1
           fi
           echo "attached $count file(s)"
+          # 发布闸门：校验资产齐全才发布为 latest；不齐保留草稿并失败。
+          assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          missing=0
+          for pat in $REQUIRED_ASSETS; do
+            if ! printf '%s\n' "$assets" | grep -Eq "$pat"; then
+              echo "::error::release $GITHUB_REF_NAME missing asset matching $pat"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::release $GITHUB_REF_NAME is missing required assets — left as DRAFT for manual review"
+            exit 1
+          fi
+          echo "All required assets present; publishing $GITHUB_REF_NAME"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
