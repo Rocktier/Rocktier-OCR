@@ -109,6 +109,8 @@ function applyLang() {
     const key = node.getAttribute("data-i18n");
     if (t[key] !== undefined) node.innerHTML = t[key];
   });
+  // 无障碍底线：屏幕阅读器要用对应语言的语音引擎
+  document.documentElement.lang = current;
   const toggle = document.getElementById("lang");
   if (toggle) toggle.textContent = current === "zh" ? "EN" : "中文";
   localStorage.setItem(LANG_KEY, current);
