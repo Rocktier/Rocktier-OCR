@@ -48,6 +48,7 @@ const STRINGS = {
     dialog: "对话框",
   unavailable: "不可用",
   Processing: "处理中",
+  Failed: "失败",
 },
   en: {
     title: "Rocktier OCR",
