@@ -2,12 +2,14 @@
 
 Makes scans and screenshots searchable. Offline, private, small, one-time purchase.
 
-**Status: gate passed; the write side is being built.** There is still no user
-interface, and deliberately so. The baseline that decides whether this project is worth
-building at all came back at 97.5% character F1 on real English papers (see *Gate*
-below), which moved the work onto the piece everything else depends on: **producing a
-searchable PDF at all** — placing a hidden text layer, and measuring text widths from
-the reader rather than estimating them.
+**Status: shipped — v0.1.9 is out.** There is a full UI now: drag a scan,
+screenshot or PDF in, and the document comes back with a searchable text layer
+(image inputs become a one-page searchable PDF), plus TXT export and clipboard
+output. Recognition runs on the PP-OCR ONNX pipeline in Rust — see *Engine*
+below — entirely offline. The gate that decided whether this project was worth
+building at all came back at 97.5% character F1 on real English papers (see
+*Gate* below); the sections that follow keep that history and the accuracy
+baselines for context.
 
 ## Scope, and what is out of scope
 

@@ -134,6 +134,10 @@ function buildMenu() {
 buildMenu();
 const origApplyLang = window.applyLang;
 window.applyLang = function () {
+  try {
+    document.documentElement.lang =
+      localStorage.getItem("rocktier.lang") || localStorage.getItem("lang") || "en";
+  } catch (e) { /* ignore */ }
   if (typeof origApplyLang === "function") origApplyLang();
   buildMenu();
 };

@@ -125,6 +125,31 @@ fn page_separator(n: usize) -> String {
     format!("\n\n--- Page {n} ---\n\n")
 }
 
+/// Pixel-count ceiling for a single image input.  A 100 MP scan would be fully
+/// decoded into RAM by `image::open` and then fed to the recogniser, which
+/// ends in an out-of-memory abort rather than an error the user can act on.
+/// 40 MP ≈ 8160×4900 — above any sane phone photo or A4 scan at 600 dpi.
+const MAX_IMAGE_PIXELS: u64 = 40_000_000;
+
+/// Read only an image's dimensions (header, no pixel buffer) and reject it
+/// before `image::open` commits to a full decode.  Returns `(w, h)` for callers
+/// that want to report them.
+fn check_image_size(path: &str) -> Result<(u32, u32), String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("无法打开图片：{e}"))?;
+    let (w, h) = image::ImageReader::new(std::io::BufReader::new(file))
+        .with_guessed_format()
+        .map_err(|e| format!("无法识别图片格式：{e}"))?
+        .into_dimensions()
+        .map_err(|e| format!("无法读取图片尺寸：{e}"))?;
+    let px = u64::from(w) * u64::from(h);
+    if px > MAX_IMAGE_PIXELS {
+        return Err(format!(
+            "图片过大：{w}×{h}（{px} 像素），超过 40MP 上限，请缩小后再试 / image too large ({w}×{h}); max 40MP"
+        ));
+    }
+    Ok((w, h))
+}
+
 /// Read a document and remember what it said. Produces nothing by itself -
 /// the three output commands do that, from what this one leaves behind.
 #[tauri::command(async)]
@@ -191,6 +216,7 @@ pub async fn ocr_process(
         } else {
             total = 1;
             let _ = app.emit("ocr-progress", Progress { page: 0, total, phase: "preparing".into() });
+            check_image_size(&input)?;
             let img = image::open(&input).map_err(|e| format!("无法打开图片：{e}"))?;
             let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
                 pipe.run(&img).map_err(|e| e.to_string())
@@ -256,6 +282,9 @@ pub async fn ocr_export_pdf(
             write_searchable::layer_on_existing(&job.input, tmp.to_str().unwrap(), &output, job.dpi, true)
                 .map_err(|e| e.to_string())?;
         } else {
+            // The export path re-opens the image itself, so it carries the same
+            // guard independently of the recognise-time check.
+            check_image_size(&job.input)?;
             let img = image::open(&job.input).map_err(|e| e.to_string())?;
             let (w, h) = (img.width() as i64, img.height() as i64);
             // The page is embedded as JPEG, so any other format is transcoded

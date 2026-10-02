@@ -5,7 +5,8 @@
   "description": "Make scans searchable, on your own machine.",
   "scripts": {
     "tauri": "tauri",
-    "tauri:windows:build": "tauri-windows-bundle build --runner npm"
+    "tauri:windows:build": "tauri-windows-bundle build --runner npm",
+    "family:check": "node scripts/family-check.mjs --self --product ocr"
   },
   "devDependencies": {
     "@choochmeque/tauri-windows-bundle": "^0.1.29",
