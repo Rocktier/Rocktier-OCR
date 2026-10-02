@@ -1,6 +1,6 @@
 [package]
 name = "rocktier-ocr"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 description = "Rocktier OCR - make scanned PDFs searchable"
 
@@ -23,6 +23,7 @@ write-searchable = { path = "../writer" }
 pdfium-render = "0.9.4"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
+tempfile = "3"
 
 [profile.release]
 opt-level = 2

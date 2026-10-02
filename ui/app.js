@@ -268,7 +268,10 @@ el("pdf").addEventListener("click", async () => {
 listen("ocr-progress", (e) => {
   const p = e.payload;
   el("status").textContent = tr().statusPage(p.page, p.total, p.phase);
-  el("bar").style.width = `${((p.page / p.total) * 100).toFixed(1)}%`;
+  // 100% only on the terminal "done" signal; cap the rest at 99% so the bar
+  // never fills before the job is actually finished.
+  const pct = p.phase === "done" ? 100 : Math.min((p.page / p.total) * 100, 99);
+  el("bar").style.width = `${pct.toFixed(1)}%`;
 });
 
 setRunning(false);

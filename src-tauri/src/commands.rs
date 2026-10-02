@@ -154,47 +154,43 @@ pub async fn ocr_process(
                 .load_pdf_from_file(Path::new(&input), None)
                 .map_err(|e| e.to_string())?;
             total = doc.pages().len() as usize;
+            let _ = app.emit("ocr-progress", Progress { page: 0, total, phase: "preparing".into() });
             for i in 0..total {
                 if cancel.load(Ordering::SeqCst) {
                     return Err("cancelled".into());
                 }
-                let _ = app.emit(
-                    "ocr-progress",
-                    Progress { page: i + 1, total, phase: "detect".into() },
-                );
                 let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
                 let text_chars = pdf::page_text_len(&page);
-                if text_chars >= 10 {
+                let phase = if text_chars >= 10 {
                     // Already readable: keep the document's own words rather
                     // than asking the recogniser to guess at them again.
                     skipped += 1;
                     let own = page.text().map_err(|e| e.to_string())?.all();
                     blocks.push(serde_json::json!([]));
                     page_text.push(own);
-                    let _ = app.emit(
-                        "ocr-progress",
-                        Progress {
-                            page: i + 1,
-                            total,
-                            phase: format!("skipped ({text_chars} chars)"),
-                        },
-                    );
-                    continue;
-                }
-                let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "render".into() });
-                let img = pdf::render_page(&page, dpi).map_err(|e| e.to_string())?;
-                let _ = app.emit("ocr-progress", Progress { page: i + 1, total, phase: "recognise".into() });
-                let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
-                    pipe.run(&img).map_err(|e| e.to_string())
-                })?;
-                line_count += lines.len();
-                ocr_pages += 1;
-                page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
-                blocks.push(blocks_json(&lines));
+                    format!("skipped ({text_chars} chars)")
+                } else {
+                    let _ = app.emit("ocr-progress", Progress { page: i, total, phase: "render".into() });
+                    let img = pdf::render_page(&page, dpi).map_err(|e| e.to_string())?;
+                    let _ = app.emit("ocr-progress", Progress { page: i, total, phase: "recognise".into() });
+                    let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
+                        pipe.run(&img).map_err(|e| e.to_string())
+                    })?;
+                    line_count += lines.len();
+                    ocr_pages += 1;
+                    page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+                    blocks.push(blocks_json(&lines));
+                    "recognised".to_string()
+                };
+                // Report page i+1 as done only after its work has finished.
+                let _ = app.emit(
+                    "ocr-progress",
+                    Progress { page: i + 1, total, phase },
+                );
             }
         } else {
             total = 1;
-            let _ = app.emit("ocr-progress", Progress { page: 1, total, phase: "recognise".into() });
+            let _ = app.emit("ocr-progress", Progress { page: 0, total, phase: "preparing".into() });
             let img = image::open(&input).map_err(|e| format!("无法打开图片：{e}"))?;
             let lines = with_pipeline(&pipeline, &app_for_pdf, |pipe| {
                 pipe.run(&img).map_err(|e| e.to_string())
@@ -203,6 +199,7 @@ pub async fn ocr_process(
             ocr_pages += 1;
             page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
             blocks.push(blocks_json(&lines));
+            let _ = app.emit("ocr-progress", Progress { page: 1, total, phase: "recognised".into() });
         }
 
         let _ = app.emit("ocr-progress", Progress { page: total, total, phase: "done".into() });
@@ -241,7 +238,10 @@ pub async fn ocr_export_pdf(
         .ok_or_else(|| "还没有转换完成的文档。".to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
-        let tmp = std::env::temp_dir().join("rocktier-ocr-pages.json");
+        // TempDir is removed when it drops, so the full-text JSON and the
+        // transcoded page image never linger in the system temp directory.
+        let dir = tempfile::TempDir::new().map_err(|e| e.to_string())?;
+        let tmp = dir.path().join("pages.json");
         // A PDF takes one entry per page; the single-image path takes the flat
         // block array, which is the same shape that mode was written for.
         let payload = if job.is_pdf {
@@ -265,7 +265,7 @@ pub async fn ocr_export_pdf(
             {
                 job.input.clone()
             } else {
-                let dst = std::env::temp_dir().join("rocktier-ocr-page.jpg");
+                let dst = dir.path().join("page.jpg");
                 img.write_to(
                     &mut std::fs::File::create(&dst).map_err(|e| e.to_string())?,
                     image::ImageFormat::Jpeg,

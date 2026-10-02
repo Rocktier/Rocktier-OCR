@@ -3563,7 +3563,7 @@ dependencies = [
 
 [[package]]
 name = "rocktier-ocr"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "image",
@@ -3576,6 +3576,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
  "write-searchable",
 ]
 
