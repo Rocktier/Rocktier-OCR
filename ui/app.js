@@ -136,7 +136,7 @@ const origApplyLang = window.applyLang;
 window.applyLang = function () {
   try {
     document.documentElement.lang =
-      localStorage.getItem("rocktier.lang") || localStorage.getItem("lang") || "en";
+      localStorage.getItem("rocktier.lang") || localStorage.getItem("rocktier.lang") || "en";
   } catch (e) { /* ignore */ }
   if (typeof origApplyLang === "function") origApplyLang();
   buildMenu();
@@ -159,7 +159,7 @@ listen("menu-action", (e) => {
       toggleLang();
       break;
     case "toggle-theme":
-      el("theme").click();
+      el("rocktier.theme").click();
       break;
     case "website":
       void invoke("open_url", { url: "https://rocktier.com/" }).catch(() => {});

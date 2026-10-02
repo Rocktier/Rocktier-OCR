@@ -45,7 +45,10 @@ const STRINGS = {
     saveDefault: "-searchable",
     themeToLight: "切换到浅色",
     themeToDark: "切换到深色",
-  },
+    dialog: "对话框",
+  unavailable: "不可用",
+  Processing: "处理中",
+},
   en: {
     title: "Rocktier OCR",
     tagline: "Make scans searchable",
@@ -111,7 +114,7 @@ function applyLang() {
   });
   // 无障碍底线：屏幕阅读器要用对应语言的语音引擎
   document.documentElement.lang = current;
-  const toggle = document.getElementById("lang");
+  const toggle = document.getElementById("rocktier.lang");
   if (toggle) toggle.textContent = current === "zh" ? "EN" : "中文";
   localStorage.setItem(LANG_KEY, current);
 }
@@ -123,6 +126,6 @@ function toggleLang() {
 
 document.addEventListener("DOMContentLoaded", () => {
   applyLang();
-  const toggle = document.getElementById("lang");
+  const toggle = document.getElementById("rocktier.lang");
   if (toggle) toggle.addEventListener("click", toggleLang);
 });

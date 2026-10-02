@@ -202,8 +202,8 @@
     <img class="brand-mark" src="./favicon.png" alt="" />
     <h1 data-i18n="title">Rocktier OCR</h1>
     <span class="tag" data-i18n="tagline">扫描件变可搜索</span>
-    <button id="lang" class="lang" title="中文 / EN">EN</button>
-    <button id="theme" class="lang" title="浅色 / 深色" aria-label="Theme">☾</button>
+    <button id="rocktier.lang" class="rocktier.lang" title="中文 / EN">EN</button>
+    <button id="rocktier.theme" class="rocktier.lang" title="浅色 / 深色" aria-label="Theme">☾</button>
   </header>
   <main>
     <div id="drop">
@@ -234,7 +234,7 @@
     // Light/Dark 切换：默认跟随系统，手动切换后记本机（head 内联脚本负责首帧）。
     (function () {
       var KEY = "rocktier-ocr-theme";
-      var btn = document.getElementById("theme");
+      var btn = document.getElementById("rocktier.theme");
       if (!btn) return;
       function currentTheme() {
         return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
