@@ -8,7 +8,7 @@
 //! OCR 的界面动作集很小，特有项只有：打开…、导出 TXT…、导出 PDF…、关闭窗口
 //! （文件段）和切换语言、切换主题（显示段，按规范不给单键快捷键）。
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::AppHandle;
 
 /// 构建并按当前语言安装原生菜单。
@@ -40,7 +40,11 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
             &PredefinedMenuItem::about(
                 app,
                 Some(l("关于 Rocktier OCR", "About Rocktier OCR")),
-                None,
+                                Some(AboutMetadata {
+                    version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    copyright: Some("Copyright 2026 Rocktier".to_string()),
+                    ..Default::default()
+                }),
             )?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
