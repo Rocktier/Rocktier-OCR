@@ -200,7 +200,7 @@ jobs:
       # 最省事的载体（msix 未签名侧载要先装证书，太麻烦）。编译产物
       # 与上一步同目录，这一步只做增量编译加打包。
       - name: Build msi
-        run: npm run tauri -- build --bundles msi
+        run: npm run tauri -- build --bundles msi,nsis
 
       - name: Collect installers
         run: |
@@ -208,6 +208,9 @@ jobs:
           mkdir -p artifacts
           find src-tauri/target/msix -maxdepth 1 \( -name '*.msix' -o -name '*.msixbundle' \) -exec cp {} artifacts/ \;
           find src-tauri/target/release/bundle/msi -name '*.msi' -exec cp {} artifacts/ \; 2>/dev/null || true
+          # NSIS 安装器：家族统一策略 —— 直链下载走 .exe（currentUser 安装、
+          # 默认建桌面快捷方式），MSI 保留作企业批量部署的次要入口。
+          find src-tauri/target/release/bundle/nsis -name '*.exe' -exec cp {} artifacts/ \; 2>/dev/null || true
           ls -la artifacts
 
       - uses: actions/upload-artifact@v4
@@ -234,7 +237,7 @@ jobs:
       - name: Publish to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_ASSETS: '\.dmg$ \.app\.zip$ \.msi$ \.msix$ \.msixbundle$'
+          REQUIRED_ASSETS: '\.dmg$ \.app\.zip$ \.msi$ \.exe$ \.msix$ \.msixbundle$'
         run: |
           set -euo pipefail
           find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' -o -name '*.msi' \) -print0 > installers.nul
