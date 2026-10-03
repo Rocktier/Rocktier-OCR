@@ -15,7 +15,26 @@
       "icons/icon.ico",
       "icons/icon.png",
       "icons/icon.icns"
-    ]
+    ],
+    "windows": {
+      "allowDowngrades": true,
+      "digestAlgorithm": "sha256",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US",
+        "upgradeCode": "5991DC71-3E89-5F97-BEE7-D7292D2E4109"
+      }
+    }
   },
   "productName": "Rocktier OCR",
   "version": "0.1.9",
