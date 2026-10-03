@@ -45,6 +45,10 @@ const STRINGS = {
     saveDefault: "-searchable",
     themeToLight: "切换到浅色",
     themeToDark: "切换到深色",
+    themeLabel: "主题",
+    themeModeAuto: "跟随系统",
+    themeModeLight: "浅色",
+    themeModeDark: "深色",
     dialog: "对话框",
   unavailable: "不可用",
   Processing: "处理中",
@@ -124,6 +128,10 @@ const STRINGS = {
     saveDefault: "-searchable",
     themeToLight: "Switch to light",
     themeToDark: "Switch to dark",
+    themeLabel: "Theme",
+    themeModeAuto: "Follow system",
+    themeModeLight: "Light",
+    themeModeDark: "Dark",
     // ── License: trial & activation (family L6; wording per Pic2WebP 4f669ac,
     //    the expired line rewritten for OCR: recognition still works, export needs a license)
     license: {
