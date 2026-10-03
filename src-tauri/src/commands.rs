@@ -256,6 +256,9 @@ pub async fn ocr_export_pdf(
     state: State<'_, AppState>,
     output: String,
 ) -> Result<serde_json::Value, String> {
+    // 导出会产出新文件：受授权闸门保护（FAMILY-LICENSE.md §2 的 OCR 行）。
+    // 放在取 job 之前：过期用户不该再走导出流程。
+    crate::ensure_write_allowed()?;
     let job = state
         .last
         .lock()
@@ -318,6 +321,11 @@ pub async fn ocr_export_txt(
     state: State<'_, AppState>,
     output: Option<String>,
 ) -> Result<TextResult, String> {
+    // 写文件的导出受授权闸门保护（FAMILY-LICENSE.md §2 的 OCR 行）。output 为 None
+    // 时不落盘 —— 前端的"复制文本"就走的这条，只取文本进剪贴板，属只读，不拦。
+    if output.is_some() {
+        crate::ensure_write_allowed()?;
+    }
     let job = state
         .last
         .lock()

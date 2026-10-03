@@ -185,6 +185,55 @@
       border-top: 1px solid var(--border); background: var(--bg-secondary);
     }
 
+    /* ───────── 许可胶囊 + 激活对话框（家族 L6，逻辑在 license.js） ───────── */
+    .license-pill {
+      font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-pill);
+      background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+      cursor: pointer; flex-shrink: 0; white-space: nowrap;
+    }
+    .license-pill:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-card-hover); }
+    .license-pill.expired { color: var(--red); border-color: rgba(230,69,55,0.35); }
+    .license-pill[hidden] { display: none; }
+
+    .license-overlay {
+      position: fixed; inset: 0; z-index: 1100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    }
+    .license-overlay[hidden] { display: none; }
+    .license-dialog {
+      width: min(400px, calc(100vw - 48px));
+      max-height: min(520px, calc(100vh - 48px));
+      overflow-y: auto;
+      background: var(--bg-secondary); border: 1px solid var(--border-hover);
+      border-radius: var(--radius-md); box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+      display: flex; flex-direction: column;
+    }
+    .license-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 0; }
+    .license-header h3 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+    .license-close {
+      border: none; background: none; color: var(--text-tertiary); cursor: pointer;
+      font-size: 18px; line-height: 1; padding: 2px 8px; border-radius: 8px;
+    }
+    .license-close:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+    .license-body { padding: 10px 16px 4px; display: flex; flex-direction: column; gap: 8px; }
+    .license-body p { font-size: 12px; color: var(--text-primary); line-height: 1.6; }
+    .license-body small { font-size: 11px; color: var(--text-tertiary); line-height: 1.55; display: block; }
+    .license-body .license-error { color: var(--red); }
+    .license-field { display: flex; flex-direction: column; gap: 5px; }
+    .license-field label { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+    .license-field input {
+      border: 1px solid var(--border-hover); border-radius: var(--radius-sm);
+      padding: 8px 10px; font-size: 12px; background: var(--bg-card);
+      color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .license-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .license-footer { display: flex; align-items: center; gap: 8px; padding: 12px 16px 14px; flex-wrap: wrap; }
+    /* 复用全局 button / button.primary（激活钮），只在对话框里收紧尺寸；
+       margin-inline-start: auto 使激活钮在 RTL 布局下也靠右（家族惯例） */
+    .license-footer button { padding: 6px 14px; font-size: 12px; border-radius: var(--radius-sm); min-height: 30px; }
+    .license-footer button.primary { margin-inline-start: auto; font-weight: 600; }
+
     /* 家族统一 reduced-motion 方案（0.01ms 而非 0：保留 transitionend/animationend 事件，
         ui-ux-pro-max a11y 基线；audit 7B-3 CRITICAL 项） */
     @media (prefers-reduced-motion: reduce) {
@@ -202,6 +251,7 @@
     <img class="brand-mark" src="./favicon.png" alt="" />
     <h1 data-i18n="title">Rocktier OCR</h1>
     <span class="tag" data-i18n="tagline">扫描件变可搜索</span>
+    <button class="license-pill" id="license-pill" hidden></button>
     <button id="rocktier.lang" class="rocktier.lang" title="中文 / EN">EN</button>
     <button id="rocktier.theme" class="rocktier.lang" title="浅色 / 深色" aria-label="Theme">☾</button>
   </header>
@@ -229,6 +279,7 @@
   </main>
   <footer data-i18n="footer">识别在本机完成，文档不会离开这台电脑。</footer>
   <script src="lang.js"></script>
+  <script src="license.js"></script>
   <script src="app.js"></script>
   <script>
     // Light/Dark 切换：默认跟随系统，手动切换后记本机（head 内联脚本负责首帧）。
