@@ -49,10 +49,10 @@ const STRINGS = {
     themeModeAuto: "跟随系统",
     themeModeLight: "浅色",
     themeModeDark: "深色",
-    dialog: "对话框",
-  unavailable: "不可用",
-  Processing: "处理中",
-  Failed: "失败",
+    /* 2026-10-04 清掉 4 个死键 —— 与 Pic2WebP 的 i18n.js 同一处缺陷、同一批键。
+     * `dialog` 在 zh 块内而 en 块没有；其余 3 个缩进 2 空格，与 `zh:`/`en:` 同级，
+     * 即漂在所有语言块之外，t() 取不到翻译会把键名当文案显示。
+     * 四者均零引用，纯字典垃圾，直接删而非补译。 */
     // ── 许可与激活（家族 L6；文案照 Pic2WebP 4f669ac，导出语义按 OCR 改写）──
     license: {
       title: "许可与激活",
@@ -165,9 +165,12 @@ const STRINGS = {
   },
 };
 
-const LANG_KEY = "rocktier-ocr-lang";
+/* 2026-10-04 键改名 → "rocktier.lang"，与 MD / Write 同名同形。
+ * 语言是用户感知最强的偏好，重置一次就等于「中文用户变英文界面」，故读取处回落旧键。 */
+const LANG_KEY = "rocktier.lang";
+const LANG_KEY_LEGACY = "rocktier-ocr-lang";
 // 家族约定：无保存偏好时默认英文，不嗅探系统语言（与 Pic2Webp 一致）
-const _savedLang = localStorage.getItem(LANG_KEY);
+const _savedLang = localStorage.getItem(LANG_KEY) ?? localStorage.getItem(LANG_KEY_LEGACY);
 let current = _savedLang === "zh" || _savedLang === "en" ? _savedLang : "en";
 
 function tr() {
