@@ -13,7 +13,10 @@
     // 默认跟随系统（家族 MD/Journal 同规则），手动选择记本机。
     (function () {
       try {
-        var saved = localStorage.getItem("rocktier-ocr-theme");
+        // 2026-10-04 键改名后与运行时对齐：主题已改读 "rocktier.theme"，
+        // 这里原先还在读旧的主题键 —— 后果是老用户会看到「先按旧键画首帧、
+        // React 挂载后跳成另一种」。旧键保留为回落。
+        var saved = localStorage.getItem("rocktier.theme") || localStorage.getItem("rocktier-ocr-theme");
         var t = saved === "light" || saved === "dark" || saved === "auto" ? saved : null;
         if (!t || t === "auto")
           t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
