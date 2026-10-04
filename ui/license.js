@@ -5,7 +5,7 @@
 // fetch 换回执，验签与落盘在 Rust（store_receipt）。
 
 // 产品页：购买与试用说明的唯一入口（与 menu.rs 的 open_url 白名单同源前缀）。
-const LICENSE_BUY_URL = "https://rocktier.com/ocr.html";
+const LICENSE_BUY_URL = "https://rocktier.com/ocr";
 
 // 最近一次 license_status 的结果（LicenseInfo，见 main.rs）。
 let licenseInfo = null;
