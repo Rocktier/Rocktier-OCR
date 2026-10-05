@@ -206,11 +206,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          find src-tauri/target/msix -maxdepth 1 \( -name '*.msix' -o -name '*.msixbundle' \) -exec cp {} artifacts/ \;
-          find src-tauri/target/release/bundle/msi -name '*.msi' -exec cp {} artifacts/ \; 2>/dev/null || true
+          # 下面两条 msi/nsis 的 find **刻意不加 `2>/dev/null || true`**。
+          #
+          # 之前两条都带这个尾巴，于是 find 若因目录名不对 / 权限 / 工具缺失
+          # 而失败，也会被静默吞掉 —— job 照样报绿，Release 里就是少了那个包。
+          #
+          # 实测踩过：v0.2.1 的 `setup.exe` 就这样消失的。构建日志里
+          # `Running makensis` 明明成功，说明产物存在、**是收集这一步静默失败**；
+          # 而后面的资产闸门只报「缺 .exe」，完全看不出是哪一步坏的。
+          #
+          # 现在让它响：find 失败 → `set -e` 直接红，指向的位置就是这里。
+          # 上面的 msix 用严格 maxdepth、不吞错误，是正确示范。
+          find src-tauri/target/release/bundle/msi -name '*.msi' -exec cp {} artifacts/ \;
           # NSIS 安装器：家族统一策略 —— 直链下载走 .exe（currentUser 安装、
           # 默认建桌面快捷方式），MSI 保留作企业批量部署的次要入口。
-          find src-tauri/target/release/bundle/nsis -name '*.exe' -exec cp {} artifacts/ \; 2>/dev/null || true
+          find src-tauri/target/release/bundle/nsis -name '*.exe' -exec cp {} artifacts/ \;
           ls -la artifacts
 
       - uses: actions/upload-artifact@v4
@@ -240,7 +250,12 @@ jobs:
           REQUIRED_ASSETS: '\.dmg$ \.app\.zip$ \.msi$ \.exe$ \.msix$ \.msixbundle$'
         run: |
           set -euo pipefail
-          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' -o -name '*.msi' \) -print0 > installers.nul
+          # `-name '*.exe'` 是 v0.2.1 缺失 `.exe` 的真正根因：
+          # NSIS 安装器**确实被构建并收集进artifacts**（日志里 5 个文件、
+          # 含一个 28MB 带可执行位的产物），但这条 find 的过滤列表里
+          # **没有 `*.exe`**，于是它在这一步被排除，从未上传到 Release。
+          # 而下游资产闸门只报「缺 .exe」，完全看不出是上传前的过滤问题。
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.msixbundle' -o -name '*.msi' -o -name '*.exe' \) -print0 > installers.nul
           count=$(tr -cd '\0' < installers.nul | wc -c)
           echo "Found $count installer(s)"
           if [ "$count" -eq 0 ]; then
@@ -268,15 +283,35 @@ jobs:
           fi
           echo "attached $count file(s)"
           # 发布闸门：校验资产齐全才发布为 latest；不齐保留草稿并失败。
-          assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
-          missing=0
-          for pat in $REQUIRED_ASSETS; do
-            if ! printf '%s\n' "$assets" | grep -Eq "$pat"; then
-              echo "::error::release $GITHUB_REF_NAME missing asset matching $pat"
-              missing=1
-            fi
+          #
+          # 必须**轮询**：GitHub 资产 API 在刚上传后可能延迟数分钟才可见。
+          # 本仓原先只查一次就下结论 —— 资产其实全传完了也会报「缺失」，
+          # 这与 v0.2.1 报 `.exe` 缺失直接相关（该包构建成功，只是没赶上）。
+          #
+          # 保留 `|| true` 仅为让轮询能继续重试（资产 API 确实会 lag），
+          # 但**必须把 stderr 打出来** —— 之前 `2>/dev/null` 把它一并丢掉，
+          # 于是 gh 的真实错误（权限 / 仓库名 / Rate limit）被伪装成
+          # 「资产还没上传」，报错信息完全指错方向。
+          # 轮询参数（20 + 30×20s ≈ 10 分钟）对齐家族其余各仓。
+          sleep 20
+          missing=1
+          for i in $(seq 1 30); do
+            assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' || true)
+            echo "  poll #$i: $(printf '%s\n' "$assets" | grep -c . || true) asset(s) visible"
+            missing=0
+            for pat in $REQUIRED_ASSETS; do
+              printf '%s\n' "$assets" | grep -Eq "$pat" || missing=1
+            done
+            [ "$missing" -eq 0 ] && break
+            echo "  waiting for uploads ($i/30)..."
+            sleep 20
           done
           if [ "$missing" -ne 0 ]; then
+            assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' || true)
+            for pat in $REQUIRED_ASSETS; do
+              printf '%s\n' "$assets" | grep -Eq "$pat" \
+                || echo "::error::release $GITHUB_REF_NAME missing asset matching $pat"
+            done
             echo "::error::release $GITHUB_REF_NAME is missing required assets — left as DRAFT for manual review"
             exit 1
           fi
