@@ -52,15 +52,12 @@
       --bg-elevated: #121212;
       --bg-card: rgba(255, 255, 255, 0.03);
       --bg-card-hover: rgba(255, 255, 255, 0.06);
-      --border: rgba(255, 255, 255, 0.06);
-      --border-hover: rgba(255, 255, 255, 0.15);
       --text-primary: rgba(255, 255, 255, 0.95);
       --text-secondary: rgba(255, 255, 255, 0.72);
       --text-tertiary: rgba(255, 255, 255, 0.58);
       --accent: #ffffff;
       --on-accent: #000000;
       --red: #ff4a3d;
-      --dot: rgba(255, 255, 255, 0.18);
       /* --success 深色档不再重定义：走母版的 rgba(48,209,88,.9)（对纯黑 8.42:1）。
          原先这里是 .95 —— 纯 alpha 微差，不影响可读性，但会让令牌回退扫描器
          继续把本仓列为 --success 回退。 */
@@ -74,25 +71,19 @@
     /* 浅色主题：值与 MD tokens.css 的浅色档逐项一致（家族基线） */
     [data-theme="light"] {
       --bg-primary: #ffffff;
-      --bg-secondary: #eeeeee;
       --bg-elevated: #ffffff;
       --bg-card: rgba(0, 0, 0, 0.03);
       --bg-card-hover: rgba(0, 0, 0, 0.06);
       --border: rgba(0, 0, 0, 0.08);
       --border-hover: rgba(0, 0, 0, 0.16);
-      --text-primary: rgba(0, 0, 0, 0.95);
-      --text-secondary: rgba(0, 0, 0, 0.72);
-      --text-tertiary: rgba(0, 0, 0, 0.58);
       --accent: #000000;
       --on-accent: #ffffff;
       --red: #e64537;
-      --dot: rgba(0, 0, 0, 0.12);
       --success: #1c7f46;
       --radius-sm: 12px;
       --radius-md: 20px;
       --radius-lg: 28px;
       --radius-pill: 999px;
-      --accent-hover: rgba(0, 0, 0, 0.82);
     }
     * { box-sizing: border-box; margin: 0; }
     body {
