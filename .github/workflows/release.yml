@@ -181,19 +181,9 @@ jobs:
       - name: Configure store identity
         run: node scripts/configure-store-identity.mjs
 
-      # ROCKTIER_CHANNEL=store turns off the app's own trial and activation
-      # entirely: the Store sold this copy and the Store knows it. Leaving our
-      # paywall in would pull in Microsoft's third-party-purchase rules (10.8.2)
-      # and its disclosure requirements (10.8.4) for no reason.
-      #
-      # ⚠️ This step is the ONLY store build — OCR's ENFORCE is true (官网已在售),
-      # so a msix built without this variable ships a self-made paywall and risks
-      # a re-review. The msi step below keeps the default `direct` channel.
-      # rustc records option_env! lookups in its dep-info, so changing this
-      # variable is enough to force a rebuild.
+        # MSIX 直装走 direct 付费墙（微软商店渠道已弃用，2026-10-05 终裁 C3）。
+        # 若未来恢复商店渠道：本步需加 env ROCKTIER_CHANNEL: store（10.8.2/10.8.4）。
       - name: Build msix
-        env:
-          ROCKTIER_CHANNEL: store
         run: npx tauri-windows-bundle build --runner npm --verbose
 
       # 顺手出一个 msi：未签名也能双击安装，是 Windows 上做功能测试
