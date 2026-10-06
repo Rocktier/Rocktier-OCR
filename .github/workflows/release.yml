@@ -233,6 +233,24 @@ jobs:
     permissions:
       contents: write
     steps:
+# 这个 job **必须 checkout**，否则下面的 gh 命令无法工作。
+      # 没有 actions/checkout 就没有 git remote，而 gh 靠 git remote 推断
+      # 当前仓库 —— 于是每条 gh 命令报
+      #   `failed to run git: fatal: not a git repository`
+      # 并以非 0 退出。
+      #
+      # 本 job 只需要读/改 Release 状态、不需要源码，但**为了让 gh 认出
+      # 仓库，仍必须 checkout**（build job 都有，只有这里漏了）。
+      #
+      # 实测踩过：MD v1.0.8 / CAD v0.2.6 / Journal v0.2.8 三仓发版全红，
+      # 报错是「六个包全缺」，而资产其实早已上传完毕 —— 真因是这里缺
+      # checkout，此前被校验段里的 `2>/dev/null || true` 掩盖着；
+      # 去掉那个 `2>/dev/null` 之后它才浮出来。
+      #
+      # 另一条思路是给每条 gh 命令加 `--repo ${{ github.repository }}`。
+      # 选 checkout 是因为它一次解决全部 gh 子命令（view/edit/upload），
+      # 而 `--repo` 漏写一处就又坏。
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
