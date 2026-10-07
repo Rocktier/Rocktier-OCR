@@ -174,7 +174,7 @@ fn main() {
             menu::build_menu,
             menu::open_url,
             license_status,
-            machine_fingerprint,
+            report_machine_fingerprint,
             store_receipt,
         ])
         // 家族菜单规范：自定义项 → 前端 menu-action 事件（复用现有动作链，
