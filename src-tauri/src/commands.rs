@@ -358,6 +358,19 @@ pub async fn ocr_export_txt(
 }
 
 /// Ask the running job to stop at the next page boundary.
+/// 本机指纹，供前端在**激活时**上报给服务端做设备计数。
+///
+/// 为什么单独开一个命令而不是让前端自己算：指纹要读注册表 / ioreg，
+/// 只有 Rust 侧做得到；且**试用与激活必须用同一个指纹** ——
+/// 用两套标识会出现「A 说没试过、B 说试过」这种自相矛盾。
+///
+/// 取不到时返回空串：服务端据此不计数也不拦激活（见
+/// `rocktier.com/api/devices.js` 的模块说明）。
+#[tauri::command]
+pub fn machine_fingerprint() -> String {
+    crate::trial::machine_fingerprint()
+}
+
 #[tauri::command]
 pub fn ocr_cancel(state: State<'_, AppState>) {
     state.cancel.store(true, Ordering::SeqCst);
