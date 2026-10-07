@@ -12,22 +12,117 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::AppHandle;
 
 /// 构建并按当前语言安装原生菜单。
-pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
-    let zh = lang.starts_with("zh");
-    let l = |zhv: &'static str, en: &'static str| if zh { zhv } else { en };
+/// Menu labels for one language.
+///
+/// Same approach as the other six products' menus: a struct per language
+/// instead of widening the old `l(zh, en)` closure to eight arguments — with
+/// eight positional string arguments, swapping `ja` and `ko` compiles cleanly
+/// and silently shows the wrong language. One field per call site makes that a
+/// compile error.
+///
+/// OCR also has 8 interface languages, so a menu that was zh/en only meant
+/// a Japanese interface with a Chinese-or-English menu bar.
+///
+/// Unknown codes fall back to English rather than panicking, so a stale
+/// `localStorage` value degrades to a usable menu.
+struct MenuStrings {
+    open: &'static str,
+    export_pdf: &'static str,
+    export_txt: &'static str,
+    file: &'static str,
+    edit: &'static str,
+    view: &'static str,
+    switch_language: &'static str,
+    toggle_theme: &'static str,
+    window: &'static str,
+    help: &'static str,
+    website: &'static str,
+    feedback: &'static str,
+    about: &'static str,
+    quit: &'static str,
+}
 
-    let open_i = MenuItem::with_id(app, "open", l("打开…", "Open…"), true, Some("CmdOrCtrl+O"))?;
+impl MenuStrings {
+    fn for_lang(lang: &str) -> Self {
+        // Primary subtag, so "zh-CN" and "zh-Hans" both land on zh.
+        let code = lang.split(['-', '_']).next().unwrap_or("");
+        match code {
+            "zh" => Self {
+                open: "打开…", export_pdf: "导出 PDF…", export_txt: "导出 TXT…",
+                file: "文件", edit: "编辑", view: "显示", switch_language: "切换语言",
+                toggle_theme: "切换日夜模式", window: "窗口", help: "帮助",
+                website: "官方网站", feedback: "反馈", about: "关于 Rocktier OCR",
+                quit: "退出",
+            },
+            "ja" => Self {
+                open: "開く…", export_pdf: "PDF を書き出し…", export_txt: "TXT を書き出し…",
+                file: "ファイル", edit: "編集", view: "表示", switch_language: "言語を切り替え",
+                toggle_theme: "テーマを切り替え", window: "ウインドウ", help: "ヘルプ",
+                website: "公式サイト", feedback: "フィードバック", about: "Rocktier OCR について",
+                quit: "終了",
+            },
+            "ko" => Self {
+                open: "열기…", export_pdf: "PDF 내보내기…", export_txt: "TXT 내보내기…",
+                file: "파일", edit: "편집", view: "보기", switch_language: "언어 전환",
+                toggle_theme: "테마 전환", window: "창", help: "도움말",
+                website: "공식 웹사이트", feedback: "피드백", about: "Rocktier OCR 정보",
+                quit: "종료",
+            },
+            "de" => Self {
+                open: "Öffnen…", export_pdf: "Als PDF exportieren…", export_txt: "Als TXT exportieren…",
+                file: "Datei", edit: "Bearbeiten", view: "Ansicht", switch_language: "Sprache wechseln",
+                toggle_theme: "Design wechseln", window: "Fenster", help: "Hilfe",
+                website: "Website", feedback: "Feedback", about: "Über Rocktier OCR",
+                quit: "Beenden",
+            },
+            "es" => Self {
+                open: "Abrir…", export_pdf: "Exportar a PDF…", export_txt: "Exportar a TXT…",
+                file: "Archivo", edit: "Editar", view: "Ver", switch_language: "Cambiar idioma",
+                toggle_theme: "Cambiar tema", window: "Ventana", help: "Ayuda",
+                website: "Sitio web", feedback: "Comentarios", about: "Acerca de Rocktier OCR",
+                quit: "Salir",
+            },
+            "pt" => Self {
+                open: "Abrir…", export_pdf: "Exportar para PDF…", export_txt: "Exportar para TXT…",
+                file: "Arquivo", edit: "Editar", view: "Exibir", switch_language: "Mudar idioma",
+                toggle_theme: "Alternar tema", window: "Janela", help: "Ajuda",
+                website: "Site", feedback: "Comentários", about: "Sobre o Rocktier OCR",
+                quit: "Sair",
+            },
+            "ar" => Self {
+                open: "فتح…", export_pdf: "تصدير PDF…", export_txt: "تصدير TXT…",
+                file: "ملف", edit: "تحرير", view: "عرض", switch_language: "تغيير اللغة",
+                toggle_theme: "تبديل المظهر", window: "نافذة", help: "مساعدة",
+                website: "الموقع", feedback: "ملاحظات", about: "حول Rocktier OCR",
+                quit: "إنهاء",
+            },
+            // English is both the family default and the fallback.
+            _ => Self {
+                open: "Open…", export_pdf: "Export PDF…", export_txt: "Export TXT…",
+                file: "File", edit: "Edit", view: "View", switch_language: "Switch Language",
+                toggle_theme: "Toggle Theme", window: "Window", help: "Help",
+                website: "Website", feedback: "Feedback", about: "About Rocktier OCR",
+                quit: "Quit",
+            },
+        }
+    }
+}
+
+pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
+    let m = MenuStrings::for_lang(lang);
+
+    let open_i = MenuItem::with_id(app, "open", m.open, true, Some("CmdOrCtrl+O"))?;
     let export_txt_i = MenuItem::with_id(
         app,
         "export-txt",
-        l("导出 TXT…", "Export TXT…"),
+        m.export_txt,
         true,
         None::<&str>,
     )?;
     let export_pdf_i = MenuItem::with_id(
         app,
         "export-pdf",
-        l("导出 PDF…", "Export PDF…"),
+        m.export_pdf,
         true,
         None::<&str>,
     )?;
@@ -39,7 +134,7 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         &[
             &PredefinedMenuItem::about(
                 app,
-                Some(l("关于 Rocktier OCR", "About Rocktier OCR")),
+                Some(m.about),
                                 Some(AboutMetadata {
                     version: Some(env!("CARGO_PKG_VERSION").to_string()),
                     copyright: Some("Copyright 2026 Rocktier".to_string()),
@@ -50,13 +145,13 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "quit", l("退出", "Quit"), true, Some("CmdOrCtrl+Q"))?,
+            &MenuItem::with_id(app, "quit", m.quit, true, Some("CmdOrCtrl+Q"))?,
         ],
     )?;
 
     let file_menu = Submenu::with_items(
         app,
-        l("文件", "File"),
+        m.file,
         true,
         &[
             &open_i,
@@ -70,7 +165,7 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
 
     let edit_menu = Submenu::with_items(
         app,
-        l("编辑", "Edit"),
+        m.edit,
         true,
         &[
             &PredefinedMenuItem::undo(app, None)?,
@@ -86,22 +181,22 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     let lang_i = MenuItem::with_id(
         app,
         "toggle-lang",
-        l("切换语言", "Switch Language"),
+        m.switch_language,
         true,
         None::<&str>,
     )?;
     let theme_i = MenuItem::with_id(
         app,
         "toggle-theme",
-        l("切换日夜模式", "Toggle Theme"),
+        m.toggle_theme,
         true,
         None::<&str>,
     )?;
-    let view_menu = Submenu::with_items(app, l("显示", "View"), true, &[&lang_i, &theme_i])?;
+    let view_menu = Submenu::with_items(app, m.view, true, &[&lang_i, &theme_i])?;
 
     let window_menu = Submenu::with_items(
         app,
-        l("窗口", "Window"),
+        m.window,
         true,
         &[
             &PredefinedMenuItem::minimize(app, None)?,
@@ -110,9 +205,9 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         ],
     )?;
 
-    let site_i = MenuItem::with_id(app, "website", l("官方网站", "Website"), true, None::<&str>)?;
-    let mail_i = MenuItem::with_id(app, "feedback", l("反馈", "Feedback"), true, None::<&str>)?;
-    let help_menu = Submenu::with_items(app, l("帮助", "Help"), true, &[&site_i, &mail_i])?;
+    let site_i = MenuItem::with_id(app, "website", m.website, true, None::<&str>)?;
+    let mail_i = MenuItem::with_id(app, "feedback", m.feedback, true, None::<&str>)?;
+    let help_menu = Submenu::with_items(app, m.help, true, &[&site_i, &mail_i])?;
 
     let menu = Menu::with_items(
         app,
