@@ -3,7 +3,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+/// 家族内唯一的产品标识，用作试用记录的副存储命名空间。
+///
+/// 必须与 `tauri.conf.json` 的 `bundle.identifier` 逐字一致 ——
+/// 副存储按它分文件，改了会导致老用户的试用记录读不到（等于白送 7 天）。
+/// 改动时两处必须同步。
+pub const APP_KEY: &str = "Rocktier.RocktierOCR";
+
+// 授权：试用状态与回执验签。写命令的拦截在 commands.rs，界面在 LicenseDialog。
 mod license;
+mod trial;
 mod menu;
 mod pdf;
 
@@ -36,10 +45,18 @@ fn current_license() -> license::Status {
         return license::Status::Trialing { days_left: license::TRIAL_DAYS };
     };
     let now = now_secs();
-    let started = license::ensure_started(dir, now);
+    /* 试用起点双写（AppData + 副存储）并按机器指纹判定，
+       见 trial.rs 的模块说明。app_key 用 bundle identifier ——
+       家族内唯一，避免两个产品的副存储互相覆盖。 */
+    let started = trial::ensure_started(
+        dir,
+        APP_KEY,
+        now,
+        &trial::machine_fingerprint(),
+    );
     // 只认本单品与全家桶的回执：别人的回执即使验签通过，也不是本应用的授权。
     let receipt = license::read_valid_receipt(dir, license::PUBLIC_KEY_B64).filter(license::accepts);
-    license::status_from(started, receipt.as_ref(), now)
+    license::status_from(Some(started), receipt.as_ref(), now)
 }
 
 /// 写操作的统一闸门。
