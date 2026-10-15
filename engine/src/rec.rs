@@ -23,7 +23,7 @@ pub struct RecModel {
 
 impl RecModel {
     pub fn load(model_path: &std::path::Path) -> Result<Self> {
-        let mut session = ort::session::Session::builder()?.commit_from_file(model_path)?;
+        let session = ort::session::Session::builder()?.commit_from_file(model_path)?;
         // The alphabet rides in the model metadata, key "character".
         let raw = session
             .metadata()?
@@ -73,7 +73,9 @@ impl RecModel {
         order.sort_by(|&a, &b| {
             let ra = crops[a].width() as f32 / crops[a].height() as f32;
             let rb = crops[b].width() as f32 / crops[b].height() as f32;
-            ra.partial_cmp(&rb).unwrap()
+            // total_cmp：高为 0 的裁剪框会给 0/0 = NaN，partial_cmp().unwrap()
+            // 会 panic —— 这是最容易在真实畸形 PDF 上触发的一处。
+            ra.total_cmp(&rb)
         });
         let mut results = vec![
             RecResult { text: String::new(), score: 0.0, selection: Vec::new(), steps: 0 };
@@ -135,7 +137,7 @@ fn decode(
         let (bi, &bp) = row
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .max_by(|a, b| a.1.total_cmp(b.1))
             .unwrap();
         if bi == 0 || bi == last {
             last = bi;

@@ -78,18 +78,18 @@ struct CropWord {
     x1: f64,
 }
 
-/// `cal_ocr_word_box` + `adjust_box_overlap`, on a crop of width `w` and
-/// height `h`.
+/// `cal_ocr_word_box` + `adjust_box_overlap`, on a crop of width `w`.
+///
+/// y 方向不参与计算：word box 的高度就是 crop 高度，`CropWord` 也没有 y 字段。
+/// PaddleOCR 原版里对称保留的 `bbox_y_start/end` 在这里是死变量（只被赋值、
+/// 从不被读），已删 —— 留着会让读者以为 y 范围在别处生效。
 fn cal_word_boxes(
     text: &[char],
     w: usize,
-    h: usize,
     info: &WordInfo,
 ) -> Vec<CropWord> {
     let bbox_x_start = 0.0f64;
     let bbox_x_end = w as f64;
-    let bbox_y_start = 0.0f64;
-    let bbox_y_end = h as f64;
     let cell_width = (bbox_x_end - bbox_x_start) / info.col_num as f64;
 
     let mut cn_widths: Vec<f64> = Vec::new();
@@ -161,7 +161,8 @@ fn cal_word_boxes(
     cal_box(&en_cols, &en_widths, &en_content);
 
     // Word boxes come out CJK-first and latin-second; re-sort by x.
-    out.sort_by(|a, b| a.x0.partial_cmp(&b.x0).unwrap());
+    // total_cmp：见 det.rs 的说明 —— 畸形框坐标可能是 NaN，不能 panic。
+    out.sort_by(|a, b| a.x0.total_cmp(&b.x0));
 
     // adjust_box_overlap: split any overlap evenly between neighbours.
     for i in 0..out.len().saturating_sub(1) {
@@ -187,7 +188,7 @@ fn order_points(pts: Vec<(f64, f64)>) -> [(f64, f64); 4] {
     sorted.sort_by(|a, b| {
         let aa = (a.0 - cx).atan2(a.1 - cy);
         let bb = (b.0 - cx).atan2(b.1 - cy);
-        aa.partial_cmp(&bb).unwrap()
+        aa.total_cmp(&bb)
     });
     // Angular sort runs clockwise-from-south in image coordinates; rotate so
     // the smallest-sum point (top-left) leads.
@@ -197,7 +198,7 @@ fn order_points(pts: Vec<(f64, f64)>) -> [(f64, f64); 4] {
         .min_by(|a, b| {
             let sa = a.1 .0 + a.1 .1;
             let sb = b.1 .0 + b.1 .1;
-            sa.partial_cmp(&sb).unwrap()
+            sa.total_cmp(&sb)
         })
         .unwrap()
         .0;
@@ -263,7 +264,7 @@ pub fn word_boxes(
     };
     let (crop_w, crop_h) = (crop.0 as f64, crop.1 as f64);
     let direction = if crop_h / crop_w >= 1.5 { "h" } else { "w" };
-    let words = cal_word_boxes(&chars, crop.0, crop.1, &info);
+    let words = cal_word_boxes(&chars, crop.0, &info);
     let mut out = Vec::new();
     for cw in words {
         if cw.text.is_empty() || cw.x1 <= cw.x0 {

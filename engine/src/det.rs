@@ -188,7 +188,11 @@ pub fn connected_components(mask: &[bool], w: usize, h: usize) -> Vec<Vec<(i64, 
 }
 
 fn convex_hull(mut pts: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
-    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.partial_cmp(&b.1).unwrap()));
+    // total_cmp 而不是 partial_cmp().unwrap()：坐标来自模型输出，畸形扫描件
+    // 可能给出 NaN，partial_cmp 会返回 None 直接把进程 panic 掉。用户拿到的
+    // 是一份坏 PDF，不该让整个应用崩 —— total_cmp 是 IEEE 754 全序，NaN 有
+    // 确定位置（排序结果对 NaN 无意义，但不崩）。
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     pts.dedup();
     if pts.len() < 3 {
         return pts;
@@ -272,7 +276,7 @@ fn min_area_rect(points: &[(i64, i64)]) -> ([[(f64, f64); 4]; 1], f32) {
 fn mini_boxes(contour: &[(i64, i64)]) -> ([(f64, f64); 4], f32) {
     let (rect, sside) = min_area_rect(contour);
     let mut points = rect[0];
-    points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
     let (i1, i2, i3, i4);
     if points[1].1 > points[0].1 {
         i1 = 0;
