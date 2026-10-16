@@ -21,21 +21,21 @@
         "ext": ["png"],
         "name": "Rocktier Image",
         "description": "Image to recognize",
-        "role": "Viewer",
+        "role": "Editor",
         "mimeType": "image/png"
       },
       {
         "ext": ["jpg", "jpeg"],
         "name": "Rocktier Image",
         "description": "Image to recognize",
-        "role": "Viewer",
+        "role": "Editor",
         "mimeType": "image/jpeg"
       },
       {
         "ext": ["pdf"],
         "name": "Rocktier Scanned PDF",
         "description": "Scanned PDF to recognize",
-        "role": "Viewer",
+        "role": "Editor",
         "mimeType": "application/pdf"
       }
     ],
