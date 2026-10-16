@@ -270,7 +270,7 @@ fn main() {
         if let tauri::RunEvent::Opened { urls } = _event {
             for url in urls {
                 let Ok(path) = url.to_file_path() else { continue };
-                let Ok(path) = path.to_str() else { continue };
+                let Some(path) = path.to_str() else { continue };
                 if !is_supported_path(std::path::Path::new(path)) {
                     continue;
                 }
