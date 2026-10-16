@@ -1,0 +1,38 @@
+name: Checks
+
+# OCR 此前没有 push 触发的编译 CI：唯一 push 工作流是 notify-family-gate，
+# Rust 改动只能靠手动派发 release.yml 验证。2026-10-16（阶段 51 / task_plan
+# P0''，用户拍板）补上 —— 本批的 macOS-only `to_str` Ok/Some 真伤正是这类
+# 闸门要拦的（Windows 绿、macOS 才编译到那几行）。
+# 规格对齐 PDF 的 ci.yml：Rust 测试 + clippy -D warnings（macOS runner）。
+# 前端为纯 JS（ui/ 静态目录，无构建步骤），补 node --check 语法闸。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Tests & Lints
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Frontend syntax check
+        run: |
+          for f in ui/*.js; do
+            node --check "$f"
+          done
+      - name: Rust tests
+        working-directory: ./src-tauri
+        run: cargo test --all-targets
+      - name: Rust lints
+        working-directory: ./src-tauri
+        run: cargo clippy --all-targets -- -D warnings
