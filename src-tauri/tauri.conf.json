@@ -16,6 +16,29 @@
       "icons/icon.png",
       "icons/icon.icns"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["png"],
+        "name": "Rocktier Image",
+        "description": "Image to recognize",
+        "role": "Viewer",
+        "mimeType": "image/png"
+      },
+      {
+        "ext": ["jpg", "jpeg"],
+        "name": "Rocktier Image",
+        "description": "Image to recognize",
+        "role": "Viewer",
+        "mimeType": "image/jpeg"
+      },
+      {
+        "ext": ["pdf"],
+        "name": "Rocktier Scanned PDF",
+        "description": "Scanned PDF to recognize",
+        "role": "Viewer",
+        "mimeType": "application/pdf"
+      }
+    ],
     "windows": {
       "allowDowngrades": true,
       "digestAlgorithm": "sha256",

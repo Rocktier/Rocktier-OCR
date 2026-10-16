@@ -125,6 +125,17 @@ listen("tauri://drag-drop", (e) => {
   setPath(paths.find((p) => isSupported(p)) || null);
 });
 
+// 文件关联（双击 / 「打开方式」）：冷启动路径经 initial_file 拉取，热启动由
+// Rust 的 open-file 事件送达。setPath 是 pickFile / 拖放共用的同一条装载
+// 路径（含界面状态重置），复用即可；isSupported 过滤与拖放同一判据。
+invoke("initial_file")
+  .then((p) => { if (p && isSupported(p)) setPath(p); })
+  .catch(() => {});
+listen("open-file", (e) => {
+  const p = e?.payload;
+  if (p && isSupported(p)) setPath(p);
+});
+
 // 原生菜单（家族规范第十三章）：挂载即按当前语言构建；applyLang 是挂在
 // window 上的函数声明，包一层即可在语言切换时重建（与 index.html 主题脚本
 // 的包装法一致，两层包装互不干扰）。
