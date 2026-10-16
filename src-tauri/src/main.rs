@@ -320,7 +320,7 @@ mod tests {
 
         // 试用期第一天：写操作放行。
         let now = now_secs();
-        // 文件名即 license.rs 的 STATE_FILE（模块私有常量，这里按值写）。
+        // 文件名即 trial.rs 的 STATE_FILE（模块私有常量，这里按值写）。
         std::fs::write(dir.join("state.bin"), now.to_string()).unwrap();
         assert_eq!(ensure_write_allowed(), Ok(()), "试用期内写操作必须放行");
 
