@@ -78,9 +78,10 @@ async function activateLicense(code) {
     }
   } catch (e) {
     // 断网是最常见情形 —— 明说，而不是甩一条 fetch 报错。
-    const msg = e instanceof Error && e.message && !e.message.includes("fetch")
-      ? e.message
-      : "offline";
+    // WKWebView 把被拦/断网的 fetch 抛成 "Load failed"（不含 "fetch" 字样）：
+    // 只认 "fetch" 会把它当成服务端错误落进 invalid，误导向「码不对」。
+    const raw = e instanceof Error && e.message ? e.message : "";
+    const msg = raw && !/fetch|load failed|network/i.test(raw) ? raw : "offline";
     throw new Error(msg);
   }
   // 验签与落盘在 Rust：前端拿到的只是一段待验的字符串。
@@ -98,12 +99,13 @@ function buyLicense() {
   }
 }
 
-// 三种失败要分开说，用户的下一步动作不同：没连上网（重试即可）、码属于别的
-// 应用（要买对单品或全家桶）、码不对（检查有没有抄错）。
+// 四种失败要分开说，用户的下一步动作不同：没连上网（重试即可）、码属于别的
+// 应用（要买对单品或全家桶）、设备数到顶（去网页解绑一台）、码不对（检查有没有抄错）。
 function licenseErrorKey(detail) {
   if (detail === "offline") return "offline";
   if (detail.includes("WRONG_PRODUCT")) return "wrongProduct";
   if (detail.includes("REFUNDED")) return "refunded";
+  if (detail.includes("DEVICE_LIMIT")) return "deviceLimit";
   return "invalid";
 }
 
