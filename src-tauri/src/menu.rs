@@ -142,7 +142,11 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
                 }),
             )?,
             &PredefinedMenuItem::separator(app)?,
+            // Windows 上 muda 的 hide_others 落进 `_ => {}` 点了无反应、hide 是
+            // SW_HIDE 窗口消失召不回（findings D-42）——仅 macOS 显示这两项。
+            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::hide(app, None)?,
+            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", m.quit, true, Some("CmdOrCtrl+Q"))?,
@@ -201,7 +205,12 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         &[
             &PredefinedMenuItem::minimize(app, None)?,
             &PredefinedMenuItem::separator(app)?,
+            // macOS 原生全屏有效；Windows 上 muda 的 fullscreen 落进 `_ => {}` 点了
+            // 无反应，改用自定义 win-fullscreen 项，由 on_menu_event 调 set_fullscreen。
+            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::fullscreen(app, None)?,
+            #[cfg(target_os = "windows")]
+            &MenuItem::with_id(app, "win-fullscreen", "Toggle Full Screen", true, None::<&str>)?,
         ],
     )?;
 
