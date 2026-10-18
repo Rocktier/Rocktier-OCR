@@ -39,6 +39,7 @@ struct MenuStrings {
     website: &'static str,
     feedback: &'static str,
     about: &'static str,
+    check_updates: &'static str,
     quit: &'static str,
 }
 
@@ -51,49 +52,49 @@ impl MenuStrings {
                 open: "打开…", export_pdf: "导出 PDF…", export_txt: "导出 TXT…",
                 file: "文件", edit: "编辑", view: "显示", switch_language: "切换语言",
                 toggle_theme: "切换日夜模式", window: "窗口", help: "帮助",
-                website: "官方网站", feedback: "反馈", about: "关于 Rocktier OCR",
+                website: "官方网站", feedback: "反馈", about: "关于 Rocktier OCR", check_updates: "检查更新…",
                 quit: "退出",
             },
             "ja" => Self {
                 open: "開く…", export_pdf: "PDF を書き出し…", export_txt: "TXT を書き出し…",
                 file: "ファイル", edit: "編集", view: "表示", switch_language: "言語を切り替え",
                 toggle_theme: "テーマを切り替え", window: "ウインドウ", help: "ヘルプ",
-                website: "公式サイト", feedback: "フィードバック", about: "Rocktier OCR について",
+                website: "公式サイト", feedback: "フィードバック", about: "Rocktier OCR について", check_updates: "アップデートを確認…",
                 quit: "終了",
             },
             "ko" => Self {
                 open: "열기…", export_pdf: "PDF 내보내기…", export_txt: "TXT 내보내기…",
                 file: "파일", edit: "편집", view: "보기", switch_language: "언어 전환",
                 toggle_theme: "테마 전환", window: "창", help: "도움말",
-                website: "공식 웹사이트", feedback: "피드백", about: "Rocktier OCR 정보",
+                website: "공식 웹사이트", feedback: "피드백", about: "Rocktier OCR 정보", check_updates: "업데이트 확인…",
                 quit: "종료",
             },
             "de" => Self {
                 open: "Öffnen…", export_pdf: "Als PDF exportieren…", export_txt: "Als TXT exportieren…",
                 file: "Datei", edit: "Bearbeiten", view: "Ansicht", switch_language: "Sprache wechseln",
                 toggle_theme: "Design wechseln", window: "Fenster", help: "Hilfe",
-                website: "Website", feedback: "Feedback", about: "Über Rocktier OCR",
+                website: "Website", feedback: "Feedback", about: "Über Rocktier OCR", check_updates: "Nach Updates suchen…",
                 quit: "Beenden",
             },
             "es" => Self {
                 open: "Abrir…", export_pdf: "Exportar a PDF…", export_txt: "Exportar a TXT…",
                 file: "Archivo", edit: "Editar", view: "Ver", switch_language: "Cambiar idioma",
                 toggle_theme: "Cambiar tema", window: "Ventana", help: "Ayuda",
-                website: "Sitio web", feedback: "Comentarios", about: "Acerca de Rocktier OCR",
+                website: "Sitio web", feedback: "Comentarios", about: "Acerca de Rocktier OCR", check_updates: "Buscar actualizaciones…",
                 quit: "Salir",
             },
             "pt" => Self {
                 open: "Abrir…", export_pdf: "Exportar para PDF…", export_txt: "Exportar para TXT…",
                 file: "Arquivo", edit: "Editar", view: "Exibir", switch_language: "Mudar idioma",
                 toggle_theme: "Alternar tema", window: "Janela", help: "Ajuda",
-                website: "Site", feedback: "Comentários", about: "Sobre o Rocktier OCR",
+                website: "Site", feedback: "Comentários", about: "Sobre o Rocktier OCR", check_updates: "Verificar atualizações…",
                 quit: "Sair",
             },
             "ar" => Self {
                 open: "فتح…", export_pdf: "تصدير PDF…", export_txt: "تصدير TXT…",
                 file: "ملف", edit: "تحرير", view: "عرض", switch_language: "تغيير اللغة",
                 toggle_theme: "تبديل المظهر", window: "نافذة", help: "مساعدة",
-                website: "الموقع", feedback: "ملاحظات", about: "حول Rocktier OCR",
+                website: "الموقع", feedback: "ملاحظات", about: "حول Rocktier OCR", check_updates: "التحقق من التحديثات…",
                 quit: "إنهاء",
             },
             // English is both the family default and the fallback.
@@ -101,7 +102,7 @@ impl MenuStrings {
                 open: "Open…", export_pdf: "Export PDF…", export_txt: "Export TXT…",
                 file: "File", edit: "Edit", view: "View", switch_language: "Switch Language",
                 toggle_theme: "Toggle Theme", window: "Window", help: "Help",
-                website: "Website", feedback: "Feedback", about: "About Rocktier OCR",
+                website: "Website", feedback: "Feedback", about: "About Rocktier OCR", check_updates: "Check for Updates…",
                 quit: "Quit",
             },
         }
@@ -214,9 +215,11 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         ],
     )?;
 
+    // 检查更新：只 emit "check-updates"，联网由前端 updates.js 做。
+    let update_i = MenuItem::with_id(app, "check-updates", m.check_updates, true, None::<&str>)?;
     let site_i = MenuItem::with_id(app, "website", m.website, true, None::<&str>)?;
     let mail_i = MenuItem::with_id(app, "feedback", m.feedback, true, None::<&str>)?;
-    let help_menu = Submenu::with_items(app, m.help, true, &[&site_i, &mail_i])?;
+    let help_menu = Submenu::with_items(app, m.help, true, &[&update_i, &site_i, &mail_i])?;
 
     let menu = Menu::with_items(
         app,

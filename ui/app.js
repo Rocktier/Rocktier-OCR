@@ -178,6 +178,9 @@ listen("menu-action", (e) => {
     case "feedback":
       void invoke("open_url", { url: "mailto:hello@rocktier.com" }).catch(() => {});
       break;
+    case "check-updates":
+      if (window.ocrRunUpdateCheck) window.ocrRunUpdateCheck();
+      break;
   }
 });
 
