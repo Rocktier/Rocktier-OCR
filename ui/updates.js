@@ -119,6 +119,13 @@
       lastCheckedAt = r.checkedAt;
       try { localStorage.setItem(STORE_KEY, String(r.checkedAt)); } catch (e) { /* 隐私模式下忽略 */ }
       state = r.hasUpdate ? "available" : "uptodate";
+      /* 顺带吊销复检：同一次点击、同一承诺（只在点击时联网）。revoked → 清回执，
+         授权状态回到未激活并弹激活对话框（license.js 全局函数，先于本文件加载）。 */
+      var rv = await revalidateLicence();
+      if (rv === "revoked") {
+        refreshLicenseStatus();
+        openLicenseDialog();
+      }
     } catch (e) {
       state = "failed";
     } finally {
