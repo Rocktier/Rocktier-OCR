@@ -30,13 +30,10 @@
   var REPO = "Rocktier/Rocktier-OCR";
   var API = "https://api.github.com/repos/" + REPO + "/releases/latest";
   var FALLBACK_URL = "https://github.com/" + REPO + "/releases/latest";
-  var STORE_KEY = "rocktier.updateCheckedAt";
 
   var state = "idle"; // idle | checking | uptodate | available | failed
   var result = null;
-  var lastCheckedAt = loadLastChecked();
   var checking = false;
-  var corner = null;
   var APP_VERSION = "";
 
   function tr() {
@@ -76,24 +73,6 @@
     }
   }
 
-  function loadLastChecked() {
-    try {
-      var n = Number(localStorage.getItem(STORE_KEY));
-      return n > 0 ? n : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function formatCheckedAt(ts) {
-    try {
-      var loc = (document.documentElement.lang || "en").indexOf("zh") === 0 ? "zh-CN" : "en";
-      return new Date(ts).toLocaleDateString(loc);
-    } catch (e) {
-      return new Date(ts).toISOString().slice(0, 10);
-    }
-  }
-
   async function checkForUpdates() {
     var res = await fetch(API, { headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -112,12 +91,10 @@
     if (checking) return;
     checking = true;
     state = "checking";
-    render();
+    openUpdateDialog();
     try {
       var r = await checkForUpdates();
       result = r;
-      lastCheckedAt = r.checkedAt;
-      try { localStorage.setItem(STORE_KEY, String(r.checkedAt)); } catch (e) { /* 隐私模式下忽略 */ }
       state = r.hasUpdate ? "available" : "uptodate";
       /* 顺带吊销复检：同一次点击、同一承诺（只在点击时联网）。revoked → 清回执，
          授权状态回到未激活并弹激活对话框（license.js 全局函数，先于本文件加载）。 */
@@ -130,79 +107,148 @@
       state = "failed";
     } finally {
       checking = false;
-      render();
+      renderDialog();
     }
   }
 
-  function ensureCorner() {
-    if (corner) return;
-    corner = document.createElement("div");
-    corner.className = "update-corner";
-    corner.innerHTML =
-      '<button type="button" class="update-line">' +
-      '<span class="update-ver"></span>' +
-      '<span class="update-sep" aria-hidden="true">·</span>' +
-      '<span class="update-action"></span>' +
-      "</button>" +
-      '<div class="update-note" role="status" aria-live="polite"></div>';
-    document.body.appendChild(corner);
-    corner.querySelector(".update-line").addEventListener("click", function () {
-      void runUpdateCheck();
+  /* ── 对话框（结构照 license.js 的 overlay 模式）──────────────────────────
+     入口只在帮助菜单「检查更新…」—— 点击才联网，启动时、工作中、后台都
+     不检查。结果一律在这里展示：右下角常驻悬浮入口已移除（用户要求入口
+     全部收进菜单；fixed 定位实测还会盖住底部内容，Compressor v0.1.10），
+     统一改为菜单 + 弹框。 */
+  var overlay = null;
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function buildDialog() {
+    overlay = el("div", "update-overlay");
+    overlay.hidden = true;
+
+    var dialog = el("div", "update-dialog");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+
+    var header = el("div", "update-header");
+    var title = el("h3", null, label("check", "Check for updates"));
+    header.appendChild(title);
+    var closeX = el("button", "update-close", "\u00d7");
+    closeX.type = "button";
+    closeX.setAttribute("aria-label", label("close", "Close"));
+    closeX.addEventListener("click", closeUpdateDialog);
+    header.appendChild(closeX);
+
+    var body = el("div", "update-body");
+    var footer = el("div", "update-footer");
+
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+    dialog.appendChild(footer);
+    overlay.appendChild(dialog);
+    // 点遮罩 = 关闭；面板内点击不冒泡（与 license.js 一致）。
+    overlay.addEventListener("mousedown", function (e) {
+      if (e.target === overlay) closeUpdateDialog();
     });
-    render();
+    // Esc 关闭（对话框打开期间生效）。
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !overlay.hidden) closeUpdateDialog();
+    });
+    document.body.appendChild(overlay);
   }
 
-  function render() {
-    if (!corner) return;
-    var u = tr().update || {};
-    corner.classList.toggle("has-update", state === "available");
-    corner.querySelector(".update-ver").textContent = "v" + (APP_VERSION || "?");
-    corner.querySelector(".update-line").disabled = state === "checking";
-    corner.querySelector(".update-line").title = label("privacy", "Only checks when you click");
-    corner.querySelector(".update-action").textContent =
-      state === "checking" ? label("checking", "Checking…") : label("check", "Check for updates");
-    var note = corner.querySelector(".update-note");
-    note.textContent = "";
-    if (state === "uptodate") {
-      note.textContent = label("upToDate", "You're up to date");
-    } else if (state === "failed") {
-      note.textContent = label("failed", "Couldn't check for updates");
-    } else if (state === "available" && result) {
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "update-get";
-      btn.textContent = label("get", "Get ") + result.latest;
-      btn.title = label("avail", "New version: ") + result.latest;
-      btn.addEventListener("click", function () {
-        try {
-          window.__TAURI__.core
-            .invoke("open_url", { url: result.url })
-            .catch(function () {});
-        } catch (e) {
-          window.open(result.url, "_blank", "noopener");
-        }
-      });
-      note.appendChild(btn);
-    } else {
-      note.textContent =
-        label("lastPrefix", "Last checked: ") +
-        (lastCheckedAt ? formatCheckedAt(lastCheckedAt) : label("never", "Never"));
+  function openUpdateDialog() {
+    if (!overlay) buildDialog();
+    overlay.hidden = false;
+    renderDialog();
+  }
+
+  function closeUpdateDialog() {
+    if (overlay) overlay.hidden = true;
+  }
+
+  function openUrl(url) {
+    try {
+      window.__TAURI__.core.invoke("open_url", { url: url }).catch(function () {});
+    } catch (e) {
+      window.open(url, "_blank", "noopener");
     }
   }
 
-  // 语言切换链（lang.js → app.js → license.js → 本层）：重渲染角落文案
+  function line(text, small) {
+    var p = el("p", null, text);
+    if (small) {
+      p.appendChild(document.createElement("br"));
+      var s = el("small", null, small);
+      p.appendChild(s);
+    }
+    return p;
+  }
+
+  function renderDialog() {
+    if (!overlay || overlay.hidden) return;
+    var body = overlay.querySelector(".update-body");
+    var footer = overlay.querySelector(".update-footer");
+    overlay.querySelector("h3").textContent = label("check", "Check for updates");
+    body.textContent = "";
+    footer.textContent = "";
+
+    if (state === "checking") {
+      body.appendChild(line(label("checking", "Checking\u2026"), label("privacy", "Only checks when you click")));
+    } else if (state === "uptodate") {
+      body.appendChild(line(label("upToDate", "You're up to date"), "v" + (APP_VERSION || "?")));
+    } else if (state === "failed") {
+      body.appendChild(line(label("failed", "Couldn't check for updates"), label("openReleasesHint", "You can also open the releases page directly.")));
+    } else if (state === "available" && result) {
+      body.appendChild(
+        line(
+          label("avail", "New version: ") + "v" + result.latest,
+          "v" + (APP_VERSION || "?") + " \u2192 v" + result.latest
+        )
+      );
+    }
+
+    var closeBtn = el("button", null, label("close", "Close"));
+    closeBtn.type = "button";
+    closeBtn.addEventListener("click", closeUpdateDialog);
+    footer.appendChild(closeBtn);
+
+    var spacer = el("span", "update-footer-spacer");
+    footer.appendChild(spacer);
+
+    if (state === "failed") {
+      var releasesBtn = el("button", null, label("openReleases", "Open releases"));
+      releasesBtn.type = "button";
+      releasesBtn.addEventListener("click", function () {
+        openUrl("https://github.com/" + REPO + "/releases/latest");
+      });
+      footer.appendChild(releasesBtn);
+    }
+    if (state === "available" && result) {
+      var getBtn = el("button", "update-get-btn", label("get", "Get ") + " v" + result.latest);
+      getBtn.type = "button";
+      getBtn.addEventListener("click", function () {
+        openUrl(result.url);
+      });
+      footer.appendChild(getBtn);
+    }
+  }
+
+  // 语言切换链（lang.js → app.js → license.js → 本层）：重渲染对话框文案
   var origApplyLang = window.applyLang;
   window.applyLang = function () {
     if (typeof origApplyLang === "function") origApplyLang();
-    render();
+    renderDialog();
   };
 
   // 菜单入口（Help → 检查更新）：app.js 的 menu-action 分支会调它
   window.ocrRunUpdateCheck = function () {
-    ensureCorner();
+    openUpdateDialog();
     void runUpdateCheck();
   };
 
-  ensureCorner();
   appVersion();
 })();

@@ -89,6 +89,9 @@ const STRINGS = {
       privacy: "点击才会联网，应用不会自动检查",
       lastPrefix: "上次检查：",
       never: "从未检查",
+      close: "关闭",
+      openReleases: "打开发布页",
+      openReleasesHint: "也可以直接打开发布页查看。",
     },
   },
   en: {
@@ -178,6 +181,9 @@ const STRINGS = {
       privacy: "Only checks when you click — the app never checks on its own",
       lastPrefix: "Last checked: ",
       never: "Never",
+      close: "Close",
+      openReleases: "Open releases",
+      openReleasesHint: "You can also open the releases page directly.",
     },
   },
 };
