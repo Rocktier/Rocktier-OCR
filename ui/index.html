@@ -189,15 +189,9 @@
       border-top: 1px solid var(--border); background: var(--bg-secondary);
     }
 
-    /* ───────── 许可胶囊 + 激活对话框（家族 L6，逻辑在 license.js） ───────── */
-    .license-pill {
-      font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-pill);
-      background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
-      cursor: pointer; flex-shrink: 0; white-space: nowrap;
-    }
-    .license-pill:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-card-hover); }
-    .license-pill.expired { color: var(--red-ink); border-color: rgba(230,69,55,0.35); }
-    .license-pill[hidden] { display: none; }
+    /* ───────── 许可胶囊 + 激活对话框（家族 L6，逻辑在 license.js） ─────────
+       胶囊样式已收编为母版 tokens.css 的 .badge-license（2026-10-25 审计 D-78），
+       这里不再保留本地定义。 */
 
     .license-overlay {
       position: fixed; inset: 0; z-index: 1100;
@@ -325,7 +319,7 @@
     <h1 data-i18n="title">Rocktier OCR</h1>
     <span class="dot-live" aria-hidden="true"></span>
     <span class="tag" data-i18n="tagline">Make scans searchable</span>
-    <button class="license-pill" id="license-pill" hidden></button>
+    <button class="badge-license" id="license-pill" hidden></button>
     <button id="rocktier.lang" class="rocktier.lang" title="中文 / EN">EN</button>
     <!-- 家族唯一主题按钮：.icon-btn（28×28 + 40×40 命中区），三态 auto→light→dark。
          此前用 ☾ / ☀ 字符冒充图标：字形覆盖取决于系统字体，且各字形基线不一致。 -->
@@ -349,7 +343,6 @@
       <button id="pdf" data-i18n="exportPdf" disabled>Export PDF</button>
       <button id="txt" data-i18n="exportTxt" disabled>Export TXT</button>
       <button id="copy" data-i18n="copyText" disabled>Copy text</button>
-      <span style="width:10px"></span>
       <button id="cancel" data-i18n="cancel" disabled>Cancel</button>
       <span id="status" role="status" aria-live="polite"></span>
     </div>
