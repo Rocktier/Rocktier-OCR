@@ -10,7 +10,7 @@ const STRINGS = {
     dropSub2: "图片会被包成一页可搜索的 PDF；原生电子版整页跳过，一个字符都不动",
     imageDone: (s) =>
       `已把这张图包成 <b>一页可搜索的 PDF</b>，识别出 ${s.lines} 行文本。`,
-    start: "开始转换",
+    start: "识别文本",
     exportPdf: "导出 PDF",
     cancel: "取消",
     exportTxt: "导出 TXT",
@@ -19,15 +19,15 @@ const STRINGS = {
     exportDone: (s) => `已导出 TXT：${s.pages} 页、${s.lines} 行、${s.chars} 字符。`,
     txtName: "文本",
     pdfName: "PDF 文档",
-    converted: (s) =>
-      `转换完成：<b>${s.pages_total} 页</b>（识别 ${s.pages_ocr} 页、原生跳过 ${s.pages_skipped} 页），${s.lines} 行。`,
+    recognised: (s) =>
+      `识别完成：<b>${s.pages_total} 页</b>（识别 ${s.pages_ocr} 页、原生跳过 ${s.pages_skipped} 页），共 ${s.lines} 行。还没落盘 —— 用下面三个按钮导出。`,
+    recognisedLog: (s) =>
+      `识别完成：${s.pages_ocr} 页加层、${s.pages_skipped} 页原生跳过，${s.lines} 行文本。`,
     pdfDone: (r) => `已导出可搜索 PDF：<b>${r.pages} 页</b>。`,
     copyFailed: "复制失败：",
     exportFailed: "导出失败：",
     preparing: "准备中…",
     statusPage: (p, t, phase) => `页 ${p}/${t} · ${phase}`,
-    done: (s) =>
-      `完成：<b>${s.pages_ocr} 页</b>识别加层，${s.pages_skipped} 页原生跳过，共 ${s.lines} 行文本。`,
     already:
       "这份 PDF 本来就可搜索 —— 每一页都已带有文字层（通常是 Word/Excel 导出的），没有需要识别的像素，所以原样保留，一个字符都没有动。",
     alreadyLog: "该文档已含文字层，无需识别。",
@@ -102,7 +102,7 @@ const STRINGS = {
     dropSub2: "An image is wrapped into a one-page searchable PDF; born-digital pages are skipped untouched",
     imageDone: (s) =>
       `Wrapped the image into <b>a one-page searchable PDF</b> with ${s.lines} lines of text.`,
-    start: "Convert",
+    start: "Recognise text",
     exportPdf: "Export PDF",
     cancel: "Cancel",
     exportTxt: "Export TXT",
@@ -111,15 +111,15 @@ const STRINGS = {
     exportDone: (s) => `TXT exported: ${s.pages} page(s), ${s.lines} lines, ${s.chars} characters.`,
     txtName: "Text",
     pdfName: "PDF document",
-    converted: (s) =>
-      `Converted: <b>${s.pages_total} page(s)</b> - ${s.pages_ocr} recognised, ${s.pages_skipped} already readable, ${s.lines} lines.`,
+    recognised: (s) =>
+      `Recognised: <b>${s.pages_total} page(s)</b> - ${s.pages_ocr} recognised, ${s.pages_skipped} already readable, ${s.lines} lines. Nothing written yet - use one of the three buttons below to export.`,
+    recognisedLog: (s) =>
+      `Recognised: ${s.pages_ocr} page(s) layered, ${s.pages_skipped} skipped, ${s.lines} lines of text.`,
     pdfDone: (r) => `Searchable PDF exported: <b>${r.pages} page(s)</b>.`,
     copyFailed: "Copy failed: ",
     exportFailed: "Export failed: ",
     preparing: "Preparing…",
     statusPage: (p, t, phase) => `Page ${p}/${t} · ${phase}`,
-    done: (s) =>
-      `Done: <b>${s.pages_ocr} page(s)</b> recognised and layered, ${s.pages_skipped} skipped, ${s.lines} lines of text.`,
     already:
       "This PDF is already searchable — every page carries its own text layer (typically exported from Word or Excel). There are no pixels to recognise, so nothing was changed.",
     alreadyLog: "The document already has a text layer; no recognition needed.",

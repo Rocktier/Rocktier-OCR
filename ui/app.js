@@ -194,9 +194,9 @@ el("go").addEventListener("click", async () => {
     const s = await invoke("ocr_process", { input: inputPath, dpi: 200 });
     job = s;
     el("done").style.display = "block";
-    const text = s.already_searchable ? tr().already : tr().converted(s);
+    const text = s.already_searchable ? tr().already : tr().recognised(s);
     el("done").innerHTML = text;
-    log(tr().finished + tr().converted(s).replace(/<[^>]+>/g, ""));
+    log(tr().recognisedLog(s));
     el("status").textContent = tr().statusDone;
   } catch (err) {
     const t = tr();
