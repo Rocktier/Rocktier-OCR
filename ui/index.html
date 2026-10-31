@@ -106,44 +106,143 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    header {
-      display: flex; align-items: center; gap: 10px;
-      padding: 16px 22px;
+    /* ── 顶栏：产品名 + 一句自述 + 全局动作 ──────────────────────────────
+       自述是「打开 3 秒知道这软件干什么」的第一落点，紧贴产品名，
+       不与右侧按钮抢视线（2026-10-30 UI 口径 §三.1）。 */
+    .topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px;
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
+      flex: none;
     }
-    .brand-mark { width: 26px; height: 26px; flex: none; }
-    .brand-mark .brand-tile { fill: #0a0a0a; stroke: var(--border); stroke-width: 1; }
-    .brand-mark .brand-letters { fill: #ffffff; font-family: inherit; }
-    .brand-mark .brand-badge { fill: #ffffff; }
-    .brand-mark .brand-pip { fill: var(--red); }
-    header h1 { font-size: 14.5px; font-weight: 600; letter-spacing: .2px; }
-    header .tag {
-      margin-left: auto; font-size: 11px; color: var(--text-tertiary);
-      letter-spacing: .3px;
+    .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .brand-mark { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+    .brand h1 { font-size: 14px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+    .brand-sub {
+      font-size: 12px; color: var(--text-tertiary); white-space: nowrap;
+      padding-left: 9px; border-left: 1px solid var(--border);
     }
+    .spacer { flex: 1; }
 
-    main { flex: 1; padding: 22px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+    /* ── 主区：拖放区常驻 + 唯一主操作 + 结果摘要 ──────────────────────── */
+    main {
+      flex: 1; min-height: 0; overflow: auto;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      padding: 32px 22px 24px;
+    }
+    .stage { width: 100%; max-width: 680px; display: flex; flex-direction: column; gap: 16px; }
 
     #drop {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; padding: 34px 26px; text-align: center;
       border: 1px dashed var(--border-hover);
       border-radius: var(--radius-md);
       background: var(--bg-card);
-      padding: 44px 24px;
-      text-align: center;
-      transition: background .15s, border-color .15s;
       cursor: pointer;
+      transition: background .15s, border-color .15s;
     }
-    #drop:hover { background: var(--bg-card-hover); }
-    #drop.over { border-color: var(--red); background: var(--bg-card-hover); }
-    #drop .big { font-size: 15.5px; font-weight: 600; }
-    #drop .sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 7px; line-height: 1.6; }
-    #drop .path {
-      margin-top: 14px; font-size: 12px; color: var(--text-primary);
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+    #drop:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
+    #drop.over { border-style: solid; border-color: var(--accent); background: var(--bg-card-hover); }
+    #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .drop-icon { color: var(--text-tertiary); }
+    .drop-icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+    #drop .big { font-size: 16.5px; font-weight: 600; letter-spacing: -.01em; }
+    #drop .sub { font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; max-width: 52ch; }
+    #drop .formats {
+      font-family: var(--font-mono, ui-monospace, monospace);
+      font-size: 10.5px; letter-spacing: .04em; color: var(--text-tertiary);
+    }
+    #drop .file {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      max-width: 100%; padding-top: 12px; border-top: 1px solid var(--border);
+      width: 100%;
+    }
+    #drop .file[hidden] { display: none; }
+    .file-name { font-size: 12.5px; font-weight: 550; color: var(--text-primary); word-break: break-all; }
+    .file-path {
+      font-family: var(--font-mono, ui-monospace, monospace);
+      font-size: 10.5px; color: var(--text-tertiary); word-break: break-all;
     }
 
-    .row { display: flex; align-items: center; gap: 10px; }
+    .primary-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    #go {
+      height: 42px; padding: 0 24px; font-size: 14px; font-weight: 600;
+      border-radius: var(--radius-sm);
+    }
+    .primary-hint { font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
+
+    /* 结果摘要：只呈现后端真实返回的计数，不编造页面 / 文字 / 耗时 */
+    .result {
+      display: flex; flex-direction: column; gap: 14px;
+      padding: 16px 18px;
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      background: var(--bg-card);
+    }
+    .result[hidden] { display: none; }
+    .result-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .result-head h2 { font-size: 13px; font-weight: 600; letter-spacing: -.01em; flex: none; }
+    .result-file {
+      margin-left: auto; min-width: 0;
+      font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; color: var(--text-tertiary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .result-note { font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; }
+    .result-note b { color: var(--text-primary); font-weight: 600; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .stat {
+      padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--bg-inset, var(--bg-card));
+      min-width: 0;
+    }
+    .stat dt { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+    .stat dd { margin: 2px 0 0; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .result-out { display: flex; align-items: baseline; gap: 10px; font-size: 12px; min-width: 0; }
+    .out-label { color: var(--text-tertiary); flex: none; }
+    .out-path {
+      font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px;
+      color: var(--text-secondary); word-break: break-all; min-width: 0;
+    }
+    .out-path[data-state="empty"] { color: var(--text-tertiary); }
+    .result-actions {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding-top: 12px; border-top: 1px solid var(--border);
+    }
+    .actions-label { font-size: 11.5px; color: var(--text-tertiary); margin-right: 2px; }
+
+    /* 详情（折叠）：保留原有运行日志，出错时可展开看原文；不再是主界面的一部分 */
+    .log-wrap { width: 100%; max-width: 680px; font-size: 11.5px; color: var(--text-tertiary); }
+    .log-wrap[hidden] { display: none; }
+    .log-wrap summary { cursor: pointer; width: fit-content; }
+    #log {
+      margin-top: 8px; max-height: 160px; overflow: auto;
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--bg-elevated); color: var(--text-secondary);
+      font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px;
+      white-space: pre-wrap;
+    }
+
+    /* ── 状态栏：进行中（红点 + 文字）/ 结果 / 失败原因 ────────────────── */
+    .statusbar {
+      flex: none; display: flex; align-items: center; gap: 10px;
+      min-height: 40px; padding: 7px 20px;
+      border-top: 1px solid var(--border); background: var(--bg-secondary);
+      font-size: 12px; color: var(--text-secondary);
+    }
+    .status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .progress {
+      width: 110px; height: 3px; flex: none; overflow: hidden;
+      border-radius: var(--radius-pill); background: var(--border);
+    }
+    .progress[hidden] { display: none; }
+    .progress i { display: block; height: 100%; width: 0%; background: var(--text-primary); transition: width .2s; }
+    .status-note { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+    #cancel {
+      min-height: 26px; padding: 3px 10px; font-size: 11.5px; font-weight: 500;
+      border-color: transparent; background: transparent; color: var(--text-secondary);
+    }
+    #cancel:hover:not(:disabled) { background: var(--bg-card-hover); border-color: var(--border); color: var(--text-primary); }
+
     button {
       font: inherit; font-size: 13px; font-weight: 500;
       padding: 8px 16px; border-radius: var(--radius-sm); cursor: pointer;
@@ -155,38 +254,31 @@
     button.primary:hover:not(:disabled) { background: var(--accent-hover); }
     button:disabled { opacity: .4; cursor: default; }
 
+    /* 顶栏「换一份文件」：唯一性的全局入口，比次级按钮略重，但不抢主按钮 */
+    #pick {
+      display: inline-flex; align-items: center; gap: 7px;
+      height: 32px; padding: 0 12px; font-size: 12.5px;
+    }
+    #pick svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+    /* 语言：家族统一 pill，仅换语言，不动其他设置 */
+    #rocktier\.lang {
+      height: 28px; padding: 0 11px; font-size: 11.5px; font-weight: 500;
+      border-radius: var(--radius-pill); color: var(--text-secondary);
+      background: transparent; border-color: transparent;
+    }
+    #rocktier\.lang:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text-primary); }
+
     /* 键盘焦点可见性（a11y）：仅键盘触发 :focus-visible，鼠标点击不留描边 */
-    :focus-visible { outline: 2px solid var(--accent, #fff); outline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     :focus:not(:focus-visible) { outline: none; }
 
-    button.lang {
-      margin-left: 10px; padding: 4px 9px; font-size: 11px; border-radius: var(--radius-pill);
-      color: var(--text-secondary);
-    }
-    #status { margin-left: auto; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-
-    #bar-wrap { height: 4px; background: var(--dot); border-radius: 2px; overflow: hidden; display: none; }
-    #bar { height: 100%; width: 0%; background: var(--red); transition: width .2s; }
-
-    #done {
-      display: none; font-size: 13px; line-height: 1.7;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: 14px 16px;
-    }
-    #done b { color: var(--success); font-weight: 600; }
-    #done .out { color: var(--text-secondary); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
-
-    #log {
-      display: none; flex: 1; min-height: 90px;
-      background: var(--bg-elevated); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: 12px 14px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
-      color: var(--text-secondary); overflow: auto; white-space: pre-wrap;
-    }
-
-    footer {
-      padding: 10px 22px; font-size: 11.5px; color: var(--text-tertiary);
-      border-top: 1px solid var(--border); background: var(--bg-secondary);
+    @media (max-width: 620px) {
+      .brand-sub { display: none; }
+      .status-note { display: none; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      main { padding: 22px 16px 18px; }
+      .topbar, .statusbar { padding-left: 14px; padding-right: 14px; }
     }
 
     /* ───────── 许可胶囊 + 激活对话框（家族 L6，逻辑在 license.js） ─────────
@@ -239,7 +331,7 @@
 .icon-btn[data-mode="dark"] .sun { display: block; }
 
     /* 家族统一 reduced-motion 方案（0.01ms 而非 0：保留 transitionend/animationend 事件，
-        ui-ux-pro-max a11y 基线；audit 7B-3 CRITICAL 项） */
+       ui-ux-pro-max a11y 基线；audit 7B-3 CRITICAL 项） */
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -295,8 +387,8 @@
 </head>
 <!-- ══════════════════════════════════════════════════════════════
      ↓↓↓ 界面本体（body）↓↓
-     本段是 UI 的全部结构：拖放区、控件、许可胶囊，以及四个脚本入口
-     （lang.js / license.js / app.js / updates.js）。
+     本段是 UI 的全部结构：顶栏、拖放区、唯一主操作、结果摘要、状态栏，
+     以及四个脚本入口（lang.js / license.js / app.js / updates.js）。
 
      ⚠️ 2026-10-21（v0.2.9, commit a28330c）事故记录：
      那次提交本意只是把「检查更新」入口收进菜单，却顺手把整个 body
@@ -314,12 +406,19 @@
      ══════════════════════════════════════════════════════════════
 -->
 <body>
-  <header>
-    <img class="brand-mark" src="./favicon.png" alt="" />
-    <h1 data-i18n="title">Rocktier OCR</h1>
-    <span class="dot-live" aria-hidden="true"></span>
-    <span class="tag" data-i18n="tagline">Make scans searchable</span>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="./favicon.png" alt="" />
+      <h1 data-i18n="title">Rocktier OCR</h1>
+      <span class="brand-sub" data-i18n="tagline">Scans into text</span>
+    </div>
+    <span class="spacer"></span>
+    <!-- 许可徽标：试用/未激活时由 license.js 显示；位置随顶栏，逻辑不动 -->
     <button class="badge-license" id="license-pill" hidden></button>
+    <button id="pick" type="button" title="Choose file">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M13 3v6h6"/><path d="M12 12v5M9.5 14.5 12 17l2.5-2.5"/></svg>
+      <span id="pick-label">Choose file</span>
+    </button>
     <button id="rocktier.lang" class="rocktier.lang" title="中文 / EN">EN</button>
     <!-- 家族唯一主题按钮：.icon-btn（28×28 + 40×40 命中区），三态 auto→light→dark。
          此前用 ☾ / ☀ 字符冒充图标：字形覆盖取决于系统字体，且各字形基线不一致。 -->
@@ -329,28 +428,75 @@
       <svg class="moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
     </button>
   </header>
+
   <main>
-    <div id="drop">
-      <div class="big" data-i18n="dropBig">Drop a PDF or an image here</div>
-      <div class="sub">
-        <span data-i18n="dropSub1">Scans and image-only PDFs are recognised and given a searchable text layer</span><br>
-        <span data-i18n="dropSub2">An image is wrapped into a one-page searchable PDF; born-digital pages are skipped untouched</span>
+    <div class="stage">
+      <!-- 拖放区常驻：空态、已选文件、识别完成后都留在原位，是「放进来就认」的固定入口 -->
+      <div id="drop" role="button" tabindex="0">
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3v11"/><path d="m8 10 4 4 4-4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        </span>
+        <span class="big" data-i18n="dropBig">Drop a PDF or an image</span>
+        <span class="sub">
+          <span data-i18n="dropSub1">Scans and image-only PDFs get a searchable text layer</span><br>
+          <span data-i18n="dropSub2">Images become a one-page searchable PDF; pages that already have text are skipped</span>
+        </span>
+        <span class="formats" data-i18n="formats">PDF · PNG · JPG</span>
+        <span class="file" id="file" hidden>
+          <span class="file-name" id="file-name"></span>
+          <span class="file-path" id="path"></span>
+        </span>
       </div>
-      <div class="path" id="path"></div>
+
+      <!-- 唯一主操作：位置固定，其余动作都在结果区或状态栏 -->
+      <div class="primary-row">
+        <button id="go" class="primary" data-i18n="start" disabled>Recognise text</button>
+        <span class="primary-hint" data-i18n="goHint">Pages that already carry text are skipped, never overwritten</span>
+      </div>
+
+      <!-- 结果摘要：页数 / 识别页 / 跳过页 / 行数都来自 ocr_process 返回值 -->
+      <section id="result" class="result" hidden aria-labelledby="result-title">
+        <div class="result-head">
+          <h2 id="result-title" data-i18n="resultTitle">Result</h2>
+          <span class="result-file" id="result-file"></span>
+        </div>
+        <p class="result-note" id="done"></p>
+        <dl class="stats">
+          <div class="stat"><dt data-i18n="statPages">Pages</dt><dd id="stat-total">0</dd></div>
+          <div class="stat"><dt data-i18n="statOcr">Recognised</dt><dd id="stat-ocr">0</dd></div>
+          <div class="stat"><dt data-i18n="statSkipped">Skipped</dt><dd id="stat-skip">0</dd></div>
+          <div class="stat"><dt data-i18n="statLines">Lines</dt><dd id="stat-lines">0</dd></div>
+        </dl>
+        <div class="result-out">
+          <span class="out-label" data-i18n="outputLabel">Output</span>
+          <span class="out-path" id="out-path" data-state="empty"></span>
+        </div>
+        <div class="result-actions">
+          <span class="actions-label" data-i18n="exportLabel">Export</span>
+          <button id="pdf" data-i18n="exportPdf" disabled>Export PDF</button>
+          <button id="txt" data-i18n="exportTxt" disabled>Export TXT</button>
+          <button id="copy" data-i18n="copyText" disabled>Copy text</button>
+        </div>
+      </section>
     </div>
-    <div class="row">
-      <button id="go" class="primary" data-i18n="start" disabled>Recognise text</button>
-      <button id="pdf" data-i18n="exportPdf" disabled>Export PDF</button>
-      <button id="txt" data-i18n="exportTxt" disabled>Export TXT</button>
-      <button id="copy" data-i18n="copyText" disabled>Copy text</button>
-      <button id="cancel" data-i18n="cancel" disabled>Cancel</button>
-      <span id="status" role="status" aria-live="polite"></span>
-    </div>
-    <div id="bar-wrap"><div id="bar"></div></div>
-    <div id="done"></div>
-    <div id="log" role="log" aria-live="polite"></div>
+
+    <!-- 运行日志：折叠保留（出错时可展开看原文），不属于主视线 -->
+    <details class="log-wrap" id="log-wrap" hidden>
+      <summary data-i18n="details">Details</summary>
+      <pre id="log" role="log" aria-live="polite"></pre>
+    </details>
   </main>
-  <footer data-i18n="footer">Recognition happens on this machine. Your document never leaves it.</footer>
+
+  <footer class="statusbar">
+    <!-- 红点只在识别进行中出现，且必须伴同进度文字（家族 §一.2） -->
+    <span class="dot-live" id="live" hidden aria-hidden="true"></span>
+    <span class="status-text" id="status" role="status" aria-live="polite"></span>
+    <span class="progress" id="bar-wrap" hidden aria-hidden="true"><i id="bar"></i></span>
+    <span class="spacer"></span>
+    <span class="status-note" data-i18n="offlineNote">Offline · your file stays on this device</span>
+    <button id="cancel" data-i18n="cancel" disabled>Cancel</button>
+  </footer>
+
   <script src="lang.js"></script>
   <script src="license.js"></script>
   <script src="app.js"></script>
