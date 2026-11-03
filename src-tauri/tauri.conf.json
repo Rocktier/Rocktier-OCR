@@ -18,21 +18,28 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["png"],
+        "ext": [
+          "png"
+        ],
         "name": "Rocktier Image",
         "description": "Image to recognize",
         "role": "Editor",
         "mimeType": "image/png"
       },
       {
-        "ext": ["jpg", "jpeg"],
+        "ext": [
+          "jpg",
+          "jpeg"
+        ],
         "name": "Rocktier Image",
         "description": "Image to recognize",
         "role": "Editor",
         "mimeType": "image/jpeg"
       },
       {
-        "ext": ["pdf"],
+        "ext": [
+          "pdf"
+        ],
         "name": "Rocktier Scanned PDF",
         "description": "Scanned PDF to recognize",
         "role": "Editor",
@@ -60,7 +67,7 @@
     }
   },
   "productName": "Rocktier OCR",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "identifier": "Rocktier.RocktierOCR",
   "app": {
     "windows": [
