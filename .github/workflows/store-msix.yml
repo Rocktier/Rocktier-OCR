@@ -1,0 +1,104 @@
+name: Store MSIX (Microsoft Store)
+
+# 只在需要出商店提交包时手动触发（Actions → Run workflow）。
+#
+# 为什么单独一个 workflow：release.yml 的 Windows job 里 msix 与 msi/nsis
+# 共用同一个 src-tauri/target 目录。ROCKTIER_CHANNEL 是 option_env! 的
+# 编译期常量，若直接在那个 job 里给 MSIX 步骤加 store 环境变量，后续
+# msi/nsis 构建可能复用同一份编译产物，把直链包串成无付费墙版本
+# （2026-11-10 上架评估发现的隐患）。独立 runner + job 级 env 是物理隔离，
+# 不依赖 Cargo 是否检测到环境变量变化。
+#
+# 与 .github/workflows/release.yml 的关系：
+#   release.yml        → 直链渠道（msi / nsis / msix），带自研试用墙
+#   本 workflow        → 商店渠道（msix / msixbundle），无试用墙、无 Help 菜单
+#
+# 家族同类先例：Pic2WebP 的 mas-package.yml（手动触发、零 secrets、只出 artifact）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-store-msix:
+    name: Build Microsoft Store MSIX (store channel)
+    runs-on: windows-latest
+    # job 级：所有步骤（含 tauri-windows-bundle 内部的 cargo build）
+    # 都看到同一个 store 渠道，option_env! 把它编译进二进制。
+    env:
+      ROCKTIER_CHANNEL: store
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Assert store channel
+        run: |
+          test "${ROCKTIER_CHANNEL}" = "store" || {
+            echo "::error::ROCKTIER_CHANNEL is not store - refusing to build"; exit 1; }
+          echo "ROCKTIER_CHANNEL=${ROCKTIER_CHANNEL}"
+
+      - name: Install CLI tooling
+        run: npm install
+
+      # 只取 Windows 那份 pdfium（脚本按平台落盘，名字与加载器一致）。
+      - name: Fetch Pdfium (windows-x64)
+        run: node scripts/fetch-pdfium.mjs windows-x64
+
+      - name: Init store bundle
+        run: npx tauri-windows-bundle init --scale
+
+      # 显式传真值；脚本会断言它与 tauri.conf.json 的 identifier 一致，
+      # 占位名 / 非法格式直接 exit 1，不会静默出包。
+      - name: Configure store identity
+        run: node scripts/configure-store-identity.mjs Rocktier.RocktierOCR
+
+      - name: Build MSIX (store channel)
+        run: npx tauri-windows-bundle build --runner npm --verbose
+
+      - name: Verify store package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          # 不吞错误：产物找不到就让 CI 红，不静默上传空目录。
+          find src-tauri/target/msix -maxdepth 1 \( -name '*.msix' -o -name '*.msixbundle' \) \
+            -exec cp {} artifacts/ \;
+          test "$(find artifacts -name '*.msix*' | wc -l)" -gt 0 || {
+            echo "::error::no MSIX produced"; exit 1; }
+
+          # 从真实包内读清单（不是只看生成物），核对身份与能力声明。
+          pkg=$(find artifacts -name '*.msix' -not -name '*.msixbundle' | head -1)
+          test -n "$pkg" || { echo "::error::no .msix (only bundle?)"; exit 1; }
+          unzip -p "$pkg" AppxManifest.xml > artifacts/AppxManifest.xml
+          grep -Fq 'Name="Rocktier.RocktierOCR"' artifacts/AppxManifest.xml || {
+            echo "::error::Identity Name mismatch"; exit 1; }
+          grep -Fq 'Capability Name="runFullTrust"' artifacts/AppxManifest.xml || {
+            echo "::error::runFullTrust missing"; exit 1; }
+          if grep -Fq 'internetClient' artifacts/AppxManifest.xml; then
+            echo "::error::unexpected internetClient capability"; exit 1; fi
+
+          # 渠道声明随包走，防止下游把这份包当直链包发出去。
+          printf 'ROCKTIER_CHANNEL=store\nIdentity Name=Rocktier.RocktierOCR\n' \
+            > artifacts/STORE-CHANNEL.txt
+          ls -la artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RocktierOCR-store-msix
+          path: artifacts/*
+          if-no-files-found: error

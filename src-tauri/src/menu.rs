@@ -216,15 +216,34 @@ pub fn build_app_menu(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     )?;
 
     // 检查更新：只 emit "check-updates"，联网由前端 updates.js 做。
+    // 三项都照常创建（避免 store 分支里结构体字段变成 dead_code），
+    // 但是否挂进菜单栏由下面的渠道判断决定。
     let update_i = MenuItem::with_id(app, "check-updates", m.check_updates, true, None::<&str>)?;
     let site_i = MenuItem::with_id(app, "website", m.website, true, None::<&str>)?;
     let mail_i = MenuItem::with_id(app, "feedback", m.feedback, true, None::<&str>)?;
-    let help_menu = Submenu::with_items(app, m.help, true, &[&update_i, &site_i, &mail_i])?;
 
-    let menu = Menu::with_items(
-        app,
-        &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu],
-    )?;
+    // 商店渠道不出 Help 菜单：「检查更新」是应用外更新入口
+    // （微软 10.8.2 / 10.8.4，Apple 2.4.5(vii)），「官方网站」会把用户
+    // 引向应用外购买（Apple 3.1.1）。直链渠道保持原样。
+    // 与 license::enforced() 同源：store 渠道下 updates.js 的 GitHub 请求、
+    // license.js 的 revalidate / activate 三处入口全部不可达
+    // （D-131 的静态可达性判定；运行时抓包未跑，不写「已验证」）。
+    let help_menu = if crate::license::channel() == "direct" {
+        Some(Submenu::with_items(app, m.help, true, &[&update_i, &site_i, &mail_i])?)
+    } else {
+        None
+    };
+
+    let menu = match help_menu.as_ref() {
+        Some(help) => Menu::with_items(
+            app,
+            &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, help],
+        )?,
+        None => Menu::with_items(
+            app,
+            &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+        )?,
+    };
     app.set_menu(menu)?;
     Ok(())
 }
