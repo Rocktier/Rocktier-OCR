@@ -62,6 +62,19 @@ jobs:
       - name: Init store bundle
         run: npx tauri-windows-bundle init --scale
 
+      # Wide310x150Logo 不在打包工具的 TAURI_ICON_MAP 里（只映射 StoreLogo/
+      # Square44x44Logo/Square150x150Logo），init --scale 会自己造一张纯色占位图：
+      # 0.2.13.0 首包里那张是 310x150 纯黑 RGBA、554 bytes，商店会拒。
+      # 所以 init 之后把仓内真图注入 Assets/，并在打包后再从包内复核一次。
+      - name: Install real wide tile
+        run: |
+          set -euo pipefail
+          src=src-tauri/icons/Wide310x150Logo.png
+          dst=src-tauri/gen/windows/Assets/Wide310x150Logo.png
+          test -f "$src" || { echo "::error::wide tile source missing: $src"; exit 1; }
+          cp "$src" "$dst"
+          node scripts/verify-wide-tile.mjs "$dst"
+
       # 显式传真值；脚本会断言它与 tauri.conf.json 的 identifier 一致，
       # 占位名 / 非法格式直接 exit 1，不会静默出包。
       - name: Configure store identity
@@ -91,6 +104,12 @@ jobs:
             echo "::error::runFullTrust missing"; exit 1; }
           if grep -Fq 'internetClient' artifacts/AppxManifest.xml; then
             echo "::error::unexpected internetClient capability"; exit 1; fi
+
+          # 从成品包内取宽磁贴复核，防止 build 阶段又把它换回占位图。
+          wide=$(mktemp)
+          unzip -p "$pkg" Assets/Wide310x150Logo.png > "$wide"
+          node scripts/verify-wide-tile.mjs "$wide"
+          rm -f "$wide"
 
           # 渠道声明随包走，防止下游把这份包当直链包发出去。
           printf 'ROCKTIER_CHANNEL=store\nIdentity Name=Rocktier.RocktierOCR\n' \
