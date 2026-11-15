@@ -1,6 +1,6 @@
 [package]
 name = "rocktier-ocr"
-version = "0.2.14"
+version = "0.2.15"
 edition = "2021"
 description = "Rocktier OCR - make scanned PDFs searchable"
 
