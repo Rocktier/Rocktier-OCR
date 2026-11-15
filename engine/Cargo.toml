@@ -6,7 +6,7 @@ description = "PP-OCRv4 inference in Rust via ONNX Runtime - the product engine,
 
 [dependencies]
 serde_json = "1"
-ort = { version = "2.0.0-rc.10", features = [] }
+ort = { version = "2.0.0-rc.15", features = [] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 anyhow = "1"
 clipper2 = "0.6.0"

@@ -22,8 +22,8 @@ pub struct RecModel {
 }
 
 impl RecModel {
-    pub fn load(model_path: &std::path::Path) -> Result<Self> {
-        let session = ort::session::Session::builder()?.commit_from_file(model_path)?;
+    pub fn load(env: &ort::environment::Environment, model_path: &std::path::Path) -> Result<Self> {
+        let session = ort::session::Session::builder(env)?.commit_from_file(model_path)?;
         // The alphabet rides in the model metadata, key "character".
         let raw = session
             .metadata()?
