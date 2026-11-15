@@ -248,9 +248,12 @@ function applyLang() {
   document.documentElement.lang = current;
   const toggle = document.getElementById("rocktier.lang");
   if (toggle) {
+    // 2026-11-15：语言控件收成 A+地球图标（纯图标，不显示文字）。
+    // title/aria-label 说明「当前 → 点击后切到哪门」。
     const next = LANG_ORDER[(LANG_ORDER.indexOf(current) + 1) % LANG_ORDER.length];
-    toggle.textContent = LANG_NAMES[next];
-    toggle.title = LANG_NAMES[current];
+    const tip = (LANG_NAMES[current] || current) + " → " + (LANG_NAMES[next] || next);
+    toggle.title = tip;
+    toggle.setAttribute("aria-label", tip);
   }
   localStorage.setItem(LANG_KEY, current);
 }
