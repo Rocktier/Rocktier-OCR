@@ -66,7 +66,6 @@ const STRINGS = {
     themeToLight: "切换到浅色",
     themeToDark: "切换到深色",
     themeLabel: "主题",
-    themeModeAuto: "跟随系统",
     themeModeLight: "浅色",
     themeModeDark: "深色",
     license: {
@@ -176,7 +175,6 @@ const STRINGS = {
     themeToLight: "Switch to light",
     themeToDark: "Switch to dark",
     themeLabel: "Theme",
-    themeModeAuto: "Follow system",
     themeModeLight: "Light",
     themeModeDark: "Dark",
     license: {

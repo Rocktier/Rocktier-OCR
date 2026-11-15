@@ -10,16 +10,19 @@
   <title>Rocktier OCR</title>
   <script>
     // 主题必须在内联样式解析前定好：异步设置会先按默认深色画一帧再跳变。
-    // 默认跟随系统（家族 MD/Journal 同规则），手动选择记本机。
+    // 2026-11-15 起两态 light ⇄ dark（取消「跟随系统」），手动选择记本机。
     (function () {
       try {
         // 2026-10-04 键改名后与运行时对齐：主题已改读 "rocktier.theme"，
         // 这里原先还在读旧的主题键 —— 后果是老用户会看到「先按旧键画首帧、
         // React 挂载后跳成另一种」。旧键保留为回落。
         var saved = localStorage.getItem("rocktier.theme") || localStorage.getItem("rocktier-ocr-theme");
-        var t = saved === "light" || saved === "dark" || saved === "auto" ? saved : null;
-        if (!t || t === "auto")
+        var t = saved === "light" || saved === "dark" ? saved : null;
+        if (!t) {
+          // 旧存 auto 的按当时系统值一次性落定；从没选过的默认深色。落定后持久化。
           t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          try { localStorage.setItem("rocktier-ocr-theme", t); } catch (e2) {}
+        }
         document.documentElement.setAttribute("data-theme", t);
       } catch (e) {
         // 隐私模式：localStorage 抛异常时按深色渲染，功能不受影响
@@ -324,9 +327,8 @@
     .license-footer button { padding: 6px 14px; font-size: 12px; border-radius: var(--radius-sm); min-height: 30px; }
     .license-footer button.primary { margin-inline-start: auto; font-weight: 600; }
 
-/* 三态图标互斥：auto 显示「屏幕」，light 显示月牙，dark 显示太阳 */
-.icon-btn .sun, .icon-btn .moon, .icon-btn .monitor { display: none; }
-.icon-btn[data-mode="auto"] .monitor { display: block; }
+/* 两态图标互斥（2026-11-15 取消「跟随系统」）：light 显示月牙，dark 显示太阳 */
+.icon-btn .sun, .icon-btn .moon { display: none; }
 .icon-btn[data-mode="light"] .moon { display: block; }
 .icon-btn[data-mode="dark"] .sun { display: block; }
 
@@ -420,10 +422,10 @@
       <span id="pick-label">Choose file</span>
     </button>
     <button id="rocktier.lang" class="rocktier.lang" title="中文 / EN">EN</button>
-    <!-- 家族唯一主题按钮：.icon-btn（28×28 + 40×40 命中区），三态 auto→light→dark。
+    <!-- 家族唯一主题按钮：.icon-btn（28×28 + 40×40 命中区），两态 light⇄dark，
+         图标只做太阳 / 月亮（2026-11-15 用户令：取消「跟随系统」）。
          此前用 ☾ / ☀ 字符冒充图标：字形覆盖取决于系统字体，且各字形基线不一致。 -->
-    <button id="rocktier.theme" class="icon-btn" data-mode="auto" title="Theme" aria-label="Theme">
-      <svg class="monitor" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 17v3.5"/></svg>
+    <button id="rocktier.theme" class="icon-btn" data-mode="dark" title="Theme" aria-label="Theme">
       <svg class="sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       <svg class="moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
     </button>
@@ -502,12 +504,10 @@
   <script src="app.js"></script>
   <script src="updates.js"></script>
   <script>
-    // 主题：auto → light → dark 三态循环（家族 §6.5 唯一状态机）。
-    // 存储键沿用既有的 "rocktier-ocr-theme"：无值 = auto（跟随系统）。
-    // 改键会让老用户的偏好丢失，所以只扩值域、不换键。
+    // 主题：light ⇄ dark 两态切换（2026-11-15 用户令：全家族取消「跟随系统」）。
+    // 存储键沿用既有的 "rocktier-ocr-theme"：改键会让老用户的偏好丢失，不换键。
     (function () {
       var KEY = "rocktier-ocr-theme";
-      var CYCLE = ["auto", "light", "dark"];
       var btn = document.getElementById("rocktier.theme");
       if (!btn) return;
 
@@ -517,15 +517,18 @@
         return lightMq.matches ? "light" : "dark";
       }
 
-      /** auto 落成实际生效值 —— data-theme 只接受 light/dark。 */
-      function resolveTheme(mode) {
-        return mode === "auto" ? systemTheme() : mode;
-      }
-
       function readMode() {
         var saved = null;
         try { saved = localStorage.getItem(KEY); } catch (e) {}
-        return saved === "light" || saved === "dark" || saved === "auto" ? saved : "auto";
+        if (saved === "light" || saved === "dark") return saved;
+        if (saved === "auto") {
+          // 旧「跟随系统」用户：按读取当时的系统值一次性落定并持久化，此后不跟随。
+          var resolved = systemTheme();
+          try { localStorage.setItem(KEY, resolved); } catch (e2) {}
+          return resolved;
+        }
+        // 从没选过：深色（家族基线；2026-11-15 起不再跟随系统）
+        return "dark";
       }
 
       function strings() {
@@ -540,29 +543,23 @@
         var s = strings();
         var label =
           mode === "light" ? (s.themeModeLight || "Light")
-          : mode === "dark" ? (s.themeModeDark || "Dark")
-          : (s.themeModeAuto || "Follow system");
+          : (s.themeModeDark || "Dark");
         var text = (s.themeLabel || "Theme") + " \u00b7 " + label;
         btn.title = text;
         btn.setAttribute("aria-label", (s.themeLabel || "Theme") + ": " + label);
       }
 
       function apply(mode) {
-        document.documentElement.setAttribute("data-theme", resolveTheme(mode));
+        document.documentElement.setAttribute("data-theme", mode);
         sync(mode);
       }
 
       apply(readMode());
 
-      // auto 态下系统外观变了要跟着变；light/dark 是明确选择，不动。
-      if (lightMq.addEventListener) {
-        lightMq.addEventListener("change", function () {
-          if (readMode() === "auto") apply("auto");
-        });
-      }
+      // 「跟随系统」已取消：不再监听系统外观变化，light/dark 都是明确选择。
 
       btn.addEventListener("click", function () {
-        var next = CYCLE[(CYCLE.indexOf(readMode()) + 1) % CYCLE.length];
+        var next = readMode() === "dark" ? "light" : "dark";
         try {
           localStorage.setItem(KEY, next);
         } catch (e) {
