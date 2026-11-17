@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Rocktier OCR —— Mac App Store 沙箱 entitlements（只写「能力」，不写「身份」）。
+
+  身份三项（application-identifier / team-identifier / keychain-access-groups）
+  由 scripts/build-appstore.sh 从描述文件读出后合并注入：codesign 传
+  --entitlements 时不会自动从 embedded.provisionprofile 补这三项，缺了它们
+  codesign --verify 仍绿、ASC 上传阶段才拒，所以必须显式注入 + 断言。
+
+  与直发轨（Entitlements.plist）的区别：MAS 轨不要 hardened runtime /
+  allow-jit，反过来必须开 app-sandbox。两套不能混用。
+
+  不开 com.apple.security.network.client：OCR 是纯离线应用（模型随包分发，
+  推理全在本机），商店轨连出站通道也不留（对齐 PDF / MD / Write 商店轨的
+  断网决策）。沙箱内没有这条授权，任何 socket 都被内核直接拒绝。
+-->
+<plist version="1.0">
+<dict>
+    <!-- 沙箱总开关。MAS 强制；缺了这一项 ASC 直接拒。 -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- 用户经打开面板/拖放选中的文件可读；识别结果回写原目录需要写。 -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

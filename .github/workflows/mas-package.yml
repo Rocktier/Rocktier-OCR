@@ -1,0 +1,69 @@
+name: MAS Package (Mac App Store)
+
+# 只产「商店渠道的 .app」，签名与出 .pkg 在本机做（scripts/build-appstore.sh sign）。
+#
+# 为什么不在 CI 签名：
+#   私钥因此永远不出本机，CI 也不需要任何证书 secrets —— 与直发轨的
+#   APPLE_CERT_P12 那套完全解耦（那是 Developer ID，跟 MAS 是两套证书，混用会废）。
+#
+# 为什么手动触发、不跟 tag 自动跑：
+#   MAS 提交是人工节奏（要建 ASC 记录、贴元数据、等审核），每次发版都多跑一个
+#   universal mac job 纯属浪费。
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ocr-mas-package
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    name: Build store-channel universal .app
+    # macos-latest（arm64）容量紧张且出现过运行中被回收的情况，改用 Intel 池
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup npm mirror (China)
+        run: npm config set registry https://registry.npmmirror.com
+
+      # universal = arm64 + x86_64 双架构。App Store 一个 .pkg 对应一个 build，
+      # 分架构提交要占两个 build 号且审核分开走，没必要 —— 直接 universal。
+      - name: Setup Rust (universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: mas-universal
+
+      # Intel 池上 dtolnay action 的 targets 偶尔不生效（实测只装了 x86_64），显式补装
+      - name: Ensure Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install npm dependencies
+        run: npm install
+
+      # BUILD_NUM 进 CFBundleVersion。ASC 要求同一 version 下 build 号严格递增，
+      # 用 run_number 天然满足；重跑也一样增长，不会撞号。
+      - name: Build store-channel .app
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+        run: bash scripts/build-appstore.sh pack
+
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-mas-store-app
+          path: build/appstore/*.app.zip
+          if-no-files-found: error
+          retention-days: 14
