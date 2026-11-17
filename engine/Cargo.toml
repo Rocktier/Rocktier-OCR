@@ -6,7 +6,9 @@ description = "PP-OCRv4 inference in Rust via ONNX Runtime - the product engine,
 
 [dependencies]
 serde_json = "1"
-ort = { version = "2.0.0-rc.15", features = [] }
+# 钉死 rc.10：rc.15 的推理输出是坏的（同一张样例信 rc.10 出 31 行，
+# rc.15 只出 2 行乱码），且 caret 范围会从 rc.10 自动漂到 rc.15。
+ort = { version = "=2.0.0-rc.10", features = [] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 anyhow = "1"
 clipper2 = "0.6.0"

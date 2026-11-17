@@ -44,10 +44,9 @@ struct Frame {
 
 impl Pipeline {
     pub fn load(det_path: &std::path::Path, cls_path: &std::path::Path, rec_path: &std::path::Path) -> Result<Self> {
-        let env = ort::init().build()?;
-        let det = ort::session::Session::builder(&env)?.commit_from_file(det_path)?;
-        let cls = ort::session::Session::builder(&env)?.commit_from_file(cls_path)?;
-        let rec = crate::rec::RecModel::load(&env, rec_path)?;
+        let det = ort::session::Session::builder()?.commit_from_file(det_path)?;
+        let cls = ort::session::Session::builder()?.commit_from_file(cls_path)?;
+        let rec = crate::rec::RecModel::load(rec_path)?;
         Ok(Self {
             det,
             cls,

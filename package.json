@@ -1,6 +1,6 @@
 {
   "name": "rocktier-ocr",
-  "version": "0.2.15",
+  "version": "1.0.0",
   "private": true,
   "description": "Make scans searchable, on your own machine.",
   "scripts": {
