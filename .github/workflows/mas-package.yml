@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   pack:
-    name: Build store-channel universal .app
+    name: Build store-channel .app (arm64)
     # macos-latest（arm64）容量紧张且出现过运行中被回收的情况，改用 Intel 池
     runs-on: macos-15-intel
     steps:
@@ -33,22 +33,22 @@ jobs:
       - name: Setup npm mirror (China)
         run: npm config set registry https://registry.npmmirror.com
 
-      # universal = arm64 + x86_64 双架构。App Store 一个 .pkg 对应一个 build，
-      # 分架构提交要占两个 build 号且审核分开走，没必要 —— 直接 universal。
-      - name: Setup Rust (universal targets)
+      # OCR 特例：ort-sys rc.15 没有 x86_64-apple-darwin 的预编译 ONNX Runtime，
+      # universal 必然失败 —— 商店轨与直发轨一致，先出 arm64 单架构包。
+      - name: Setup Rust (aarch64 target)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: mas-universal
+          key: mas-aarch64
 
-      # Intel 池上 dtolnay action 的 targets 偶尔不生效（实测只装了 x86_64），显式补装
-      - name: Ensure Rust targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      # Intel 池上 dtolnay action 的 targets 偶尔不生效，显式补装
+      - name: Ensure Rust target
+        run: rustup target add aarch64-apple-darwin
 
       - name: Install npm dependencies
         run: npm install

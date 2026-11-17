@@ -124,25 +124,29 @@ cmd_pack() {
     '
 
     echo ""
-    echo "📦 Tauri build（universal，只产 .app）..."
+    echo "📦 Tauri build（arm64，只产 .app）..."
     npm run tauri -- build \
         --config "$tmp_conf" \
-        --target universal-apple-darwin \
+        --target aarch64-apple-darwin \
         --bundles app
 
-    local bundle_dir="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+    local bundle_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
     local app
     app=$(find "$bundle_dir" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)
     [ -n "$app" ] || die "构建后找不到 .app（${bundle_dir}）"
 
-    # 架构硬断言：universal 少一个架构就等于把一半用户挡在门外
+    # 架构断言：arm64 必须有。x86_64 缺是**预期行为**（ort-sys rc.15 没有
+    # x86_64 预编译 ONNX Runtime，universal 必然失败），与直发轨一致。
     local bin archs
     bin=$(find "$app/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit)
     [ -n "$bin" ] || die "找不到可执行文件"
     archs=$(lipo -archs "$bin" 2>/dev/null || echo "")
     say "架构: ${archs}"
     case "$archs" in *arm64*) ;; *) die ".app 缺 arm64 架构（lipo -archs 输出：${archs}）" ;; esac
-    case "$archs" in *x86_64*) ;; *) die ".app 缺 x86_64 架构（lipo -archs 输出：${archs}）" ;; esac
+    case "$archs" in
+        *x86_64*) say "注意: 含 x86_64（意外，但放行）" ;;
+        *) say "注意: 仅 arm64 —— ort-sys rc.15 无 x86_64 预编译，属预期" ;;
+    esac
 
     # CFBundleVersion 复核：注入没生效的话 ASC 会因为 build 号重复拒收
     local got_build
@@ -208,22 +212,22 @@ cmd_sign() {
     [ -n "$bin_id" ] || die "读不到 .app 的 CFBundleIdentifier"
 
     # ── 架构 ────────────────────────────────────────────────────
-    # productbuild 会把二进制架构写进 Distribution 的 hostArchitectures，
-    # 单架构包等于把另一半 Mac 用户挡在门外（实测 aarch64 单包会写成
-    # hostArchitectures="arm64"）。所以这里必须断言双架构。
+    # OCR 特例：ort-sys rc.15 无 x86_64 预编译 ONNX Runtime，商店轨与直发轨
+    # 一致出 arm64 单架构。hostArchitectures 会写 arm64，Intel Mac 装不上 ——
+    # 这是当前上游约束下的已知取舍，不是事故。
     local bin_file archs
     bin_file=$(find "$app/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit)
     [ -n "$bin_file" ] || die "找不到可执行文件"
     archs=$(lipo -archs "$bin_file" 2>/dev/null || echo "")
     say "架构:     ${archs:-未知}"
     case "$archs" in
-        *arm64*x86_64*|*x86_64*arm64*) ;;
+        *arm64*x86_64*|*x86_64*arm64*) say "注意: universal（意外，但放行）" ;;
+        *arm64*) say "注意: 仅 arm64 —— ort-sys rc.15 无 x86_64 预编译，属预期" ;;
         *)
             if [ "$ALLOW_NONSTORE" = "1" ]; then
-                echo "⚠️  单架构 .app（${archs}）已按 --allow-nonstore 放行 —— 该包不可提交 ASC"
+                echo "⚠️  非 arm64 .app（${archs}）已按 --allow-nonstore 放行 —— 该包不可提交 ASC"
             else
-                die ".app 不是 universal（实际：${archs:-未知}）。App Store 包必须同时含 arm64 与 x86_64，
-   否则 pkg 的 hostArchitectures 会锁死单一架构。请用 scripts/build-appstore.sh pack 产出的 zip。"
+                die ".app 缺 arm64 架构（实际：${archs:-未知}）。OCR 商店包至少要含 arm64。"
             fi
             ;;
     esac
