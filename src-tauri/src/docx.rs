@@ -337,6 +337,38 @@ mod tests {
         assert!(paragraphs_from_text("   \n\n").is_empty());
     }
 
+    /// 端到端样例：用一页真实的识别结果（两段，含缩进与短行收尾）排一份
+    /// .docx，写到 target/ 下。CI 把它当产物上传，用来人工看一眼排版对不对 ——
+    /// 单测只能证明「能被读回」，证明不了「读起来像一篇文章」。
+    #[test]
+    fn sample_docx_is_written_for_inspection() {
+        let page1 = vec![
+            lb("The shop does not open until nine, and I have stopped", 100.0, 80.0, 900.0),
+            lb("pretending I sleep past six. Coffee, the window, the", 145.0, 80.0, 900.0),
+            lb("street still deciding what kind of day it wants to be.", 190.0, 80.0, 860.0),
+            lb("    Wrote three hundred words about the man who came in", 280.0, 130.0, 900.0),
+            lb("on Tuesday wanting a bathtub that would outlive him.", 325.0, 80.0, 880.0),
+            lb("这家店九点才开门，我早就不装作自己能睡到六点以后了。", 420.0, 80.0, 890.0),
+            lb("雨从八点下到四点，进来两个人，都只是看看。", 500.0, 80.0, 900.0),
+        ];
+        let page2 = vec![
+            lb("Page two starts here and carries a single paragraph.", 100.0, 80.0, 900.0),
+        ];
+        let pages = vec![
+            paragraphs_from_lines(&page1),
+            paragraphs_from_lines(&page2),
+        ];
+        assert_eq!(pages[0].len(), 4, "两段英文 + 一段首行缩进 + 一段中文：{:?}", pages[0]);
+
+        let out = std::path::Path::new("target/docx-sample.docx");
+        if let Some(dir) = out.parent() {
+            std::fs::create_dir_all(dir).ok();
+        }
+        let s = write(&pages, None, out.to_str().unwrap()).expect("写样例失败");
+        assert_eq!(s.pages, 2);
+        assert!(out.exists());
+    }
+
     #[test]
     fn write_produces_a_readable_docx() {
         let dir = std::env::temp_dir().join(format!("ocr-docx-test-{}", std::process::id()));

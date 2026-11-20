@@ -36,3 +36,13 @@ jobs:
       - name: Rust lints
         working-directory: ./src-tauri
         run: cargo clippy --all-targets -- -D warnings
+
+      # docx 导出的样张：单测只能证明「能被读回」，证明不了「读起来像一篇文章」。
+      # sample_docx_is_written_for_inspection 把它写到 target/ 下，这里带出来人工看一眼。
+      - name: Upload docx sample
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docx-sample
+          path: src-tauri/target/docx-sample.docx
+          if-no-files-found: ignore
