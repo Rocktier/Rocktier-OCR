@@ -38,7 +38,7 @@ pub struct Job {
     pub line_boxes: Vec<Vec<crate::docx::LineBox>>,
     /// Page size in twips (1/1440 inch) taken from the source PDF, so the
     /// exported document keeps the original page shape. None for images.
-    pub page_twips: Option<(i32, i32)>,
+    pub page_twips: Option<(u32, u32)>,
 }
 
 pub struct AppState {
@@ -179,7 +179,7 @@ pub async fn ocr_process(
         let mut blocks: Vec<serde_json::Value> = Vec::new();
         let mut page_text: Vec<String> = Vec::new();
         let mut line_boxes: Vec<Vec<crate::docx::LineBox>> = Vec::new();
-        let mut page_twips: Option<(i32, i32)> = None;
+        let mut page_twips: Option<(u32, u32)> = None;
         let (mut ocr_pages, mut skipped, mut line_count) = (0usize, 0usize, 0usize);
         let total: usize;
 
@@ -200,8 +200,8 @@ pub async fn ocr_process(
                     // a document with mixed page sizes is rare enough that the
                     // honest answer is "the first page's shape".
                     page_twips = Some((
-                        (page.width().value * 20.0).round() as i32,
-                        (page.height().value * 20.0).round() as i32,
+                        (page.width().value * 20.0).round() as u32,
+                        (page.height().value * 20.0).round() as u32,
                     ));
                 }
                 let text_chars = pdf::page_text_len(&page);

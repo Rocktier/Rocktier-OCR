@@ -180,10 +180,11 @@ fn body(text: &str) -> Paragraph {
 /// 少了它，导出稿的页数就跟原件对不上，对稿子的人会错行。
 pub fn write(
     pages: &[Vec<String>],
-    page_twips: Option<(i32, i32)>,
+    page_twips: Option<(u32, u32)>,
     output: &str,
 ) -> anyhow::Result<Stats> {
-    let (w, h) = page_twips.unwrap_or((11906, 16838)); // 缺省 A4 纵向
+    // twips（1/1440 英寸），docx-rs 的 page_size 要 u32；缺省 A4 纵向
+    let (w, h) = page_twips.unwrap_or((11906, 16838));
     let mut doc = Docx::new()
         .page_size(w, h)
         .page_margin(PageMargin {
