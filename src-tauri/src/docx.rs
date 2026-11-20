@@ -77,6 +77,17 @@ fn median(mut v: Vec<f32>) -> f32 {
     v[v.len() / 2]
 }
 
+/// 低分位数。左边距 = 少数行才会缩进，所以取偏小的那一档：
+/// 用最小会被页边一条竖线带偏，用中位数在「缩进行恰好占一半」的页上会选错。
+fn low_percentile(mut v: Vec<f32>, p: f32) -> f32 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let idx = ((v.len() as f32 - 1.0) * p).round() as usize;
+    v[idx.min(v.len() - 1)]
+}
+
 /// 两侧都是中日韩字符时不插空格，否则插一个 —— 与家族其余产品的拼接规则一致。
 fn cjk(c: char) -> bool {
     matches!(c as u32,
@@ -108,8 +119,9 @@ pub fn paragraphs_from_lines(lines: &[LineBox]) -> Vec<String> {
         return out;
     }
     let h = median(lines.iter().map(|l| l.height()).collect());
-    // 段左边界取全页最常见（这里用中位数近似）的左边界：缩进判据要有基准。
-    let para_left = median(lines.iter().map(|l| l.left).collect());
+    // 段的左边界就是正文的左边距：取左边界的低分位数（10%），
+    // 缩进行天然是少数，不会被它们抬上去。
+    let para_left = low_percentile(lines.iter().map(|l| l.left).collect(), 0.1);
     let page_right = lines.iter().map(|l| l.right).fold(f32::MIN, f32::max);
 
     let mut acc = String::new();
