@@ -23,6 +23,10 @@
 //!
 //! 不猜标题级别、不还原表格、不还原分栏、不套学术模板。识别出来的是**文字**，
 //! 排版交回给使用者在 Word 里做。给一个诚实的纯文字稿，比给一个猜错的版式有用。
+//!
+//! 唯一的例外是首行缩进：它不是猜出来的样式，而是原件里量得到的几何 ——
+//! 既然切段都用到了它，写盘时就还原成「首行缩进 2 字符」。否则一份靠缩进分段
+//! 的中文稿导出后通篇顶格，读者还得自己一段段去设。
 
 use docx_rs::{
     Docx, LineSpacing, LineSpacingType, PageMargin, PageOrientationType, Paragraph, Run, RunFonts,
@@ -32,7 +36,24 @@ use docx_rs::{
 pub struct Stats {
     pub pages: usize,
     pub paragraphs: usize,
-    pub lines: usize,
+}
+
+/// 一段：文字，和它在原件里是不是首行缩进的。
+///
+/// 缩进不只是「怎么切段」的判据，它本身就是排版信息：中文稿几乎全靠每段首行
+/// 缩两字来分段。把行并成一段却把缩进丢掉，导出稿在 Word 里就是通篇顶格 ——
+/// 读的人还得自己一段段去设缩进。这里把这一位留下，写盘时还原成
+/// 「首行缩进 2 字符」。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Para {
+    pub text: String,
+    pub first_line_indent: bool,
+}
+
+impl Para {
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self { text: text.into(), first_line_indent: false }
+    }
 }
 
 /// 一行字的最小几何。坐标沿用识别图（像素），只在页内比较。
@@ -112,9 +133,9 @@ fn join(acc: &mut String, next: &str) {
     acc.push_str(next);
 }
 
-/// 一页的行 → 段落。返回每段的文字。
-pub fn paragraphs_from_lines(lines: &[LineBox]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// 一页的行 → 段落。返回每段的文字，以及这段的首行原本是不是缩进的。
+pub fn paragraphs_from_lines(lines: &[LineBox]) -> Vec<Para> {
+    let mut out: Vec<Para> = Vec::new();
     if lines.is_empty() {
         return out;
     }
@@ -123,8 +144,12 @@ pub fn paragraphs_from_lines(lines: &[LineBox]) -> Vec<String> {
     // 缩进行天然是少数，不会被它们抬上去。
     let para_left = low_percentile(lines.iter().map(|l| l.left).collect(), 0.1);
     let page_right = lines.iter().map(|l| l.right).fold(f32::MIN, f32::max);
+    let indented = |l: &LineBox| l.left - para_left > 1.2 * h;
 
     let mut acc = String::new();
+    // 当前这一段的首行是否缩进。开新段时按「触发切段的那一行」定：
+    // 靠缩进切出来的段自然是缩进的，靠空档或短行切出来的自然不是。
+    let mut acc_indented = false;
     let mut prev: Option<&LineBox> = None;
 
     for line in lines {
@@ -132,40 +157,49 @@ pub fn paragraphs_from_lines(lines: &[LineBox]) -> Vec<String> {
         if text.is_empty() {
             continue;
         }
-        if let Some(p) = prev {
-            let gap = line.top - p.bottom;
-            let indented = line.left - para_left > 1.2 * h;
-            let prev_short = page_right - p.right > 2.0 * h;
-            let back_to_margin = line.left - para_left <= 0.6 * h;
-            if gap > 0.8 * h || indented || (prev_short && back_to_margin) {
-                out.push(std::mem::take(&mut acc));
+        match prev {
+            None => acc_indented = indented(line),
+            Some(p) => {
+                let gap = line.top - p.bottom;
+                let prev_short = page_right - p.right > 2.0 * h;
+                let back_to_margin = line.left - para_left <= 0.6 * h;
+                if gap > 0.8 * h || indented(line) || (prev_short && back_to_margin) {
+                    out.push(Para {
+                        text: std::mem::take(&mut acc),
+                        first_line_indent: acc_indented,
+                    });
+                    acc_indented = indented(line);
+                }
             }
         }
         join(&mut acc, text);
         prev = Some(line);
     }
     if !acc.is_empty() {
-        out.push(acc);
+        out.push(Para { text: acc, first_line_indent: acc_indented });
     }
     out
 }
 
 /// 已经带文字层的一页 → 段落：空行分段，段内合并。
-pub fn paragraphs_from_text(text: &str) -> Vec<String> {
+///
+/// 文字层没有框，看不出首行缩进，所以一律不标 —— 宁可少给一个缩进，
+/// 也不要把「提取时被吃掉的行首空格」当成排版。
+pub fn paragraphs_from_text(text: &str) -> Vec<Para> {
     let mut out = Vec::new();
     let mut acc = String::new();
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() {
             if !acc.is_empty() {
-                out.push(std::mem::take(&mut acc));
+                out.push(Para::plain(std::mem::take(&mut acc)));
             }
             continue;
         }
         join(&mut acc, line);
     }
     if !acc.is_empty() {
-        out.push(acc);
+        out.push(Para::plain(acc));
     }
     out
 }
@@ -188,10 +222,10 @@ fn body(text: &str) -> Paragraph {
 
 /// 写出一份 .docx。
 ///
-/// `pages` 每页若干段文字。页与页之间插分页符，与原件页码一一对应 ——
+/// `pages` 每页若干段。页与页之间插分页符，与原件页码一一对应 ——
 /// 少了它，导出稿的页数就跟原件对不上，对稿子的人会错行。
 pub fn write(
-    pages: &[Vec<String>],
+    pages: &[Vec<Para>],
     page_twips: Option<(u32, u32)>,
     output: &str,
 ) -> anyhow::Result<Stats> {
@@ -211,10 +245,14 @@ pub fn write(
         .page_orient(PageOrientationType::Portrait);
 
     let mut paragraphs = 0usize;
-    let mut lines = 0usize;
     for (i, page) in pages.iter().enumerate() {
-        for (j, text) in page.iter().enumerate() {
-            let mut p = body(text);
+        for (j, para) in page.iter().enumerate() {
+            let mut p = body(&para.text);
+            if para.first_line_indent {
+                // 单位是百分之一字符：200 = 首行缩进 2 字符，Word 里显示的
+                // 就是「首行缩进 2 字符」，换个字号也不会跟着变错。
+                p = p.first_line_chars(200);
+            }
             // 每页第一段带分页符（首页不带）。
             if i > 0 && j == 0 {
                 p = p.page_break_before(true);
@@ -222,7 +260,6 @@ pub fn write(
             doc = doc.add_paragraph(p);
             paragraphs += 1;
         }
-        lines += page.len();
     }
 
     // 空文档也要有正文：Word 打不开零段落的 docx。
@@ -248,7 +285,7 @@ pub fn write(
     }
     std::fs::rename(&tmp, path)?;
 
-    Ok(Stats { pages: pages.len(), paragraphs, lines })
+    Ok(Stats { pages: pages.len(), paragraphs })
 }
 
 #[cfg(test)]
@@ -270,7 +307,8 @@ mod tests {
         ];
         let p = paragraphs_from_lines(&lines);
         assert_eq!(p.len(), 1, "{p:?}");
-        assert!(p[0].contains("nine, and I have stopped"), "{}", p[0]);
+        assert!(p[0].text.contains("nine, and I have stopped"), "{}", p[0].text);
+        assert!(!p[0].first_line_indent, "首行顶格，不该标缩进");
     }
 
     #[test]
@@ -281,7 +319,8 @@ mod tests {
         ];
         let p = paragraphs_from_lines(&lines);
         assert_eq!(p.len(), 2, "{p:?}");
-        assert_eq!(p[0], "First paragraph ends here.");
+        assert_eq!(p[0].text, "First paragraph ends here.");
+        assert!(!p[1].first_line_indent, "靠空档分段，不该标缩进");
     }
 
     #[test]
@@ -299,11 +338,13 @@ mod tests {
     fn first_line_indent_starts_a_new_paragraph() {
         let lines = vec![
             lb("Body line that runs to the right margin here.", 100.0, 50.0, 950.0),
-            lb("    Indented opening of the next paragraph.", 145.0, 130.0, 950.0),
+            lb("    Indented opening of the next paragraph.", 145.0, 140.0, 950.0),
         ];
         let p = paragraphs_from_lines(&lines);
         assert_eq!(p.len(), 2, "{p:?}");
-        assert_eq!(p[1], "Indented opening of the next paragraph.");
+        assert_eq!(p[1].text, "Indented opening of the next paragraph.");
+        assert!(!p[0].first_line_indent);
+        assert!(p[1].first_line_indent, "靠缩进切出来的段，要标上缩进");
     }
 
     #[test]
@@ -314,7 +355,7 @@ mod tests {
         ];
         let p = paragraphs_from_lines(&lines);
         assert_eq!(p.len(), 1);
-        assert_eq!(p[0], "这家店九点才开门，我早就不装作自己能睡到六点以后了。");
+        assert_eq!(p[0].text, "这家店九点才开门，我早就不装作自己能睡到六点以后了。");
     }
 
     #[test]
@@ -327,7 +368,7 @@ mod tests {
     #[test]
     fn native_text_splits_on_blank_lines() {
         let text = "line one\nline two\n\nline three\n";
-        let p = paragraphs_from_text(text);
+        let p: Vec<String> = paragraphs_from_text(text).into_iter().map(|x| x.text).collect();
         assert_eq!(p, vec!["line one line two", "line three"]);
     }
 
@@ -346,7 +387,7 @@ mod tests {
             lb("The shop does not open until nine, and I have stopped", 100.0, 80.0, 900.0),
             lb("pretending I sleep past six. Coffee, the window, the", 145.0, 80.0, 900.0),
             lb("street still deciding what kind of day it wants to be.", 190.0, 80.0, 860.0),
-            lb("    Wrote three hundred words about the man who came in", 280.0, 130.0, 900.0),
+            lb("    Wrote three hundred words about the man who came in", 280.0, 140.0, 900.0),
             lb("on Tuesday wanting a bathtub that would outlive him.", 325.0, 80.0, 880.0),
             lb("这家店九点才开门，我早就不装作自己能睡到六点以后了。", 420.0, 80.0, 890.0),
             lb("雨从八点下到四点，进来两个人，都只是看看。", 500.0, 80.0, 900.0),
@@ -359,6 +400,11 @@ mod tests {
             paragraphs_from_lines(&page2),
         ];
         assert_eq!(pages[0].len(), 4, "两段英文 + 一段首行缩进 + 一段中文：{:?}", pages[0]);
+        // 切段对不对之外，还得看缩进这一位有没有带下去：样张里只有第二段是
+        // 原件中缩进的，写盘后 Word 里它应该显示「首行缩进 2 字符」，其余顶格。
+        assert!(!pages[0][0].first_line_indent);
+        assert!(pages[0][1].first_line_indent, "第二段在原件里是缩进的：{:?}", pages[0][1]);
+        assert!(!pages[0][2].first_line_indent);
 
         let out = std::path::Path::new("target/docx-sample.docx");
         if let Some(dir) = out.parent() {
@@ -375,8 +421,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("out.docx");
         let pages = vec![
-            vec!["page one paragraph".to_string()],
-            vec!["page two paragraph".to_string()],
+            vec![Para::plain("page one paragraph")],
+            vec![Para::plain("page two paragraph")],
         ];
         let s = write(&pages, None, out.to_str().unwrap()).unwrap();
         assert_eq!(s.pages, 2);

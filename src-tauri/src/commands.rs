@@ -369,7 +369,7 @@ pub async fn ocr_export_docx(
         .ok_or_else(|| "还没有转换完成的文档。".to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
-        let mut pages: Vec<Vec<String>> = Vec::with_capacity(job.page_text.len());
+        let mut pages: Vec<Vec<crate::docx::Para>> = Vec::with_capacity(job.page_text.len());
         for (i, text) in job.page_text.iter().enumerate() {
             let paragraphs = match job.line_boxes.get(i) {
                 Some(boxes) if !boxes.is_empty() => crate::docx::paragraphs_from_lines(boxes),
@@ -384,7 +384,6 @@ pub async fn ocr_export_docx(
             "output": output,
             "pages": stats.pages,
             "paragraphs": stats.paragraphs,
-            "lines": stats.lines,
         }))
     })
     .await
