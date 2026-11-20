@@ -86,6 +86,7 @@ function render() {
   el("go").disabled = isRunning || !inputPath;
   el("pick").disabled = isRunning;
   el("pdf").disabled = !canExport;
+  el("docx").disabled = !canExport;
   el("txt").disabled = !canExport;
   el("copy").disabled = !canExport;
 
@@ -262,6 +263,9 @@ listen("menu-action", (e) => {
     case "open":
       pickFile();
       break;
+    case "export-docx":
+      el("docx").click();
+      break;
     case "export-txt":
       el("txt").click();
       break;
@@ -324,6 +328,32 @@ async function copyToClipboard(text) {
 }
 
 el("cancel").addEventListener("click", () => invoke("ocr_cancel"));
+
+// 导出 Word：识别结果直接落成 .docx。扫描件给别人改稿时最常用的一条路。
+el("docx").addEventListener("click", async () => {
+  if (!job || running) return;
+  let out;
+  try {
+    out = await save({
+      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + tr().docxDefault + ".docx",
+      filters: [{ name: tr().docxName, extensions: ["docx"] }],
+    });
+  } catch (err) {
+    log(tr().saveDialogFailed + errMsg(err));
+    return;
+  }
+  if (!out) return;
+  try {
+    const r = await invoke("ocr_export_docx", { output: out });
+    outPath = out;
+    log(tr().finished + out);
+    render();
+    el("status").innerHTML = tr().docxDone(r);
+  } catch (err) {
+    log(tr().exportFailed + errMsg(err));
+    el("status").textContent = tr().failed + errMsg(err);
+  }
+});
 
 // 导出 TXT：原生页用自带文字，扫描页与图片走识别。
 el("txt").addEventListener("click", async () => {

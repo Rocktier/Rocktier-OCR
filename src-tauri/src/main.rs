@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod docx;
 /// 家族内唯一的产品标识，用作试用记录的副存储命名空间。
 ///
 /// 必须与 `tauri.conf.json` 的 `bundle.identifier` 逐字一致 ——
@@ -253,6 +254,7 @@ fn main() {
             initial_file,
             commands::ocr_process,
             commands::ocr_export_pdf,
+            commands::ocr_export_docx,
             commands::ocr_export_txt,
             commands::ocr_cancel,
             menu::build_menu,

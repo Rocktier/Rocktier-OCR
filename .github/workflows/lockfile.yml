@@ -1,0 +1,43 @@
+name: Lockfile sync
+
+# 依赖变更（Cargo.toml 加/删一条）之后，src-tauri/Cargo.lock 必须跟上，
+# 否则下次构建由 runner 现场解析：同一份源码在不同日子编出的二进制不同，
+# 真要出问题时也没法回放。
+#
+# 本仓不在本地构建（用户口径：所有构建走 GitHub），所以这条补丁放在 runner 上。
+# 手动派发，不跟 push 跑 —— 它是「改完依赖后点一下」的维护入口，不是每轮都要跑。
+#
+# 用 `cargo metadata` 而不是 `cargo generate-lockfile`：前者只补缺失条目、
+# 保留既有 pin（ort / ort-sys 是手工钉到 rc.15 的），后者会整体重解析，
+# 顺手把别的依赖升上去 —— 那不是这条作业该管的事。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Resolve lock and commit back
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve (writes Cargo.lock if manifest moved on)
+        working-directory: ./src-tauri
+        run: cargo metadata --format-version 1 > /dev/null
+
+      - name: Commit when it actually changed
+        run: |
+          if git diff --quiet -- src-tauri/Cargo.lock; then
+            echo "lock 已是最新，无需提交"
+            exit 0
+          fi
+          git diff --stat -- src-tauri/Cargo.lock
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/Cargo.lock
+          git commit -m "chore(deps): Cargo.lock 跟上 manifest（CI 生成）"
+          git push

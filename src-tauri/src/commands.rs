@@ -31,6 +31,14 @@ pub struct Job {
     /// Text per page: the document's own words where it had them, the
     /// recognised lines where it did not.
     pub page_text: Vec<String>,
+    /// Per-line geometry per page, empty for pages that already had text.
+    /// Kept besides the JSON because the .docx writer groups lines into
+    /// paragraphs by position, and reading coordinates back out of JSON
+    /// would be a needless round trip.
+    pub line_boxes: Vec<Vec<crate::docx::LineBox>>,
+    /// Page size in twips (1/1440 inch) taken from the source PDF, so the
+    /// exported document keeps the original page shape. None for images.
+    pub page_twips: Option<(i32, i32)>,
 }
 
 pub struct AppState {
@@ -170,6 +178,8 @@ pub async fn ocr_process(
         let is_pdf = input.to_lowercase().ends_with(".pdf");
         let mut blocks: Vec<serde_json::Value> = Vec::new();
         let mut page_text: Vec<String> = Vec::new();
+        let mut line_boxes: Vec<Vec<crate::docx::LineBox>> = Vec::new();
+        let mut page_twips: Option<(i32, i32)> = None;
         let (mut ocr_pages, mut skipped, mut line_count) = (0usize, 0usize, 0usize);
         let total: usize;
 
@@ -185,6 +195,15 @@ pub async fn ocr_process(
                     return Err("cancelled".into());
                 }
                 let page = doc.pages().get(i as i32).map_err(|e| e.to_string())?;
+                if page_twips.is_none() {
+                    // Points → twips (1 pt = 20 twips). Only page 0 is needed:
+                    // a document with mixed page sizes is rare enough that the
+                    // honest answer is "the first page's shape".
+                    page_twips = Some((
+                        (page.width().value * 20.0).round() as i32,
+                        (page.height().value * 20.0).round() as i32,
+                    ));
+                }
                 let text_chars = pdf::page_text_len(&page);
                 let phase = if text_chars >= 10 {
                     // Already readable: keep the document's own words rather
@@ -192,6 +211,7 @@ pub async fn ocr_process(
                     skipped += 1;
                     let own = page.text().map_err(|e| e.to_string())?.all();
                     blocks.push(serde_json::json!([]));
+                    line_boxes.push(Vec::new());
                     page_text.push(own);
                     format!("skipped ({text_chars} chars)")
                 } else {
@@ -204,6 +224,12 @@ pub async fn ocr_process(
                     line_count += lines.len();
                     ocr_pages += 1;
                     page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+                    line_boxes.push(
+                        lines
+                            .iter()
+                            .map(|l| crate::docx::LineBox::from_quad(&l.text, &l.box4))
+                            .collect(),
+                    );
                     blocks.push(blocks_json(&lines));
                     "recognised".to_string()
                 };
@@ -224,6 +250,12 @@ pub async fn ocr_process(
             line_count += lines.len();
             ocr_pages += 1;
             page_text.push(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
+            line_boxes.push(
+                lines
+                    .iter()
+                    .map(|l| crate::docx::LineBox::from_quad(&l.text, &l.box4))
+                    .collect(),
+            );
             blocks.push(blocks_json(&lines));
             let _ = app.emit("ocr-progress", Progress { page: 1, total, phase: "recognised".into() });
         }
@@ -235,6 +267,8 @@ pub async fn ocr_process(
             dpi,
             blocks,
             page_text,
+            line_boxes,
+            page_twips,
         });
 
         Ok(Summary {
@@ -310,6 +344,48 @@ pub async fn ocr_export_pdf(
         }
 
         Ok(serde_json::json!({ "output": output, "pages": job.page_text.len() }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 导出 Word：把识别结果排成 .docx。
+///
+/// 与 PDF/TXT 同源：都从 `Job` 出，识别不重跑。分页按原件的页序，段内换行
+/// 合并过（见 docx.rs 顶部的判据），段与段之间不留空行 —— 空行在 Word 里
+/// 是「段后距」，交给样式，不靠多打一个回车。
+#[tauri::command(async)]
+pub async fn ocr_export_docx(
+    state: State<'_, AppState>,
+    output: String,
+) -> Result<serde_json::Value, String> {
+    // 导出会产出新文件：受授权闸门保护（FAMILY-LICENSE.md §2 的 OCR 行）。
+    crate::ensure_write_allowed()?;
+    let job = state
+        .last
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "还没有转换完成的文档。".to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let mut pages: Vec<Vec<String>> = Vec::with_capacity(job.page_text.len());
+        for (i, text) in job.page_text.iter().enumerate() {
+            let paragraphs = match job.line_boxes.get(i) {
+                Some(boxes) if !boxes.is_empty() => crate::docx::paragraphs_from_lines(boxes),
+                // 本来就带文字层的页，或者几何没留的不可能分支：退回按空行分段
+                _ => crate::docx::paragraphs_from_text(text),
+            };
+            pages.push(paragraphs);
+        }
+        let stats = crate::docx::write(&pages, job.page_twips, &output)
+            .map_err(|e| format!("写出 Word 失败：{e}"))?;
+        Ok(serde_json::json!({
+            "output": output,
+            "pages": stats.pages,
+            "paragraphs": stats.paragraphs,
+            "lines": stats.lines,
+        }))
     })
     .await
     .map_err(|e| e.to_string())?
