@@ -30,6 +30,7 @@
 
 use docx_rs::{
     Docx, LineSpacing, LineSpacingType, PageMargin, PageOrientationType, Paragraph, Run, RunFonts,
+    SpecialIndentType,
 };
 
 /// 导出结果，回给前端做一句状态栏文案。
@@ -210,9 +211,22 @@ fn body_fonts() -> RunFonts {
     RunFonts::new().ascii("Times New Roman").east_asia("宋体")
 }
 
+/// 正文字号：12 pt（docx 的 size 单位是半磅）。
+const BODY_HALF_POINTS: usize = 24;
+
+/// 首行缩进两字，单位 twips（1 pt = 20 twips）：2 × 12 pt × 20 = 480。
+///
+/// 本来该用 `Paragraph::first_line_chars(200)`（百分之一字符，正是 Word 里
+/// 「首行缩进 2 字符」的写法），但 docx-rs 0.4 的 `Indent::build_to` 只把
+/// start / special_indent / end / start_chars 交给 XML 写入器，`first_line_chars`
+/// 被标成「Internal, for reading」直接丢掉 —— 设了也不进文件，上游主干后来
+/// 才把写入器扩到七参。所以这里给绝对宽度：正文 12 pt 时 480 twips 恰好
+/// 两个汉字宽，Word 里显示 0.85 厘米。
+const FIRST_LINE_INDENT_TWIPS: i32 = 480;
+
 fn body(text: &str) -> Paragraph {
     Paragraph::new()
-        .add_run(Run::new().size(24).fonts(body_fonts()).add_text(text))
+        .add_run(Run::new().size(BODY_HALF_POINTS).fonts(body_fonts()).add_text(text))
         .line_spacing(
             LineSpacing::new()
                 .line(240)
@@ -249,9 +263,7 @@ pub fn write(
         for (j, para) in page.iter().enumerate() {
             let mut p = body(&para.text);
             if para.first_line_indent {
-                // 单位是百分之一字符：200 = 首行缩进 2 字符，Word 里显示的
-                // 就是「首行缩进 2 字符」，换个字号也不会跟着变错。
-                p = p.first_line_chars(200);
+                p = p.indent(None, Some(SpecialIndentType::FirstLine(FIRST_LINE_INDENT_TWIPS)), None, None);
             }
             // 每页第一段带分页符（首页不带）。
             if i > 0 && j == 0 {
@@ -432,6 +444,42 @@ mod tests {
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.starts_with(b"PK"), "不是 zip 容器");
         assert!(docx_rs::read_docx(&bytes).is_ok(), "docx 读回失败");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 缩进必须真的写进文件，不能只是 Para 上有个 true。
+    ///
+    /// 这条是踩出来的：`Paragraph::first_line_chars(200)` 看着最对，docx-rs 0.4
+    /// 的 Indent::build_to 却把这个字段丢掉，于是段落标记为「该缩进」、单测在
+    /// 内存里全过、导出的 Word 通篇顶格。所以要读回文件，量到 w:firstLine 才算数。
+    #[test]
+    fn first_line_indent_reaches_the_file() {
+        let dir = std::env::temp_dir().join(format!("ocr-docx-indent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("indent.docx");
+        let pages = vec![vec![
+            Para::plain("顶格的一段"),
+            Para { text: "缩进的一段".to_string(), first_line_indent: true },
+            Para::plain("又是顶格的一段"),
+        ]];
+        write(&pages, None, out.to_str().unwrap()).unwrap();
+
+        let bytes = std::fs::read(&out).unwrap();
+        let doc = docx_rs::read_docx(&bytes).unwrap();
+        let mut got = Vec::new();
+        for child in &doc.document.children {
+            if let docx_rs::DocumentChild::Paragraph(p) = child {
+                got.push(
+                    p.property
+                        .indent
+                        .as_ref()
+                        .and_then(|i| i.special_indent)
+                        .map(|s| matches!(s, SpecialIndentType::FirstLine(n) if n == FIRST_LINE_INDENT_TWIPS))
+                        .unwrap_or(false),
+                );
+            }
+        }
+        assert_eq!(got, vec![false, true, false], "首行缩进没进文件：{got:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
