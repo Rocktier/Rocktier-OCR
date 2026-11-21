@@ -53,6 +53,9 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      - name: MAS entitlements gate
+        run: node scripts/verify-mas-entitlements.mjs
+
       # BUILD_NUM 进 CFBundleVersion。ASC 要求同一 version 下 build 号严格递增，
       # 用 run_number 天然满足；重跑也一样增长，不会撞号。
       - name: Build store-channel .app
