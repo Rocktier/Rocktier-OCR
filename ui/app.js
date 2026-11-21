@@ -1,3 +1,6 @@
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
 // Rocktier OCR 前端：拖拽选文件，调用后端命令，订阅进度事件。
 //
 // 拖拽路径只在 Tauri 的 webview 拖拽事件里才是真实路径 —— 浏览器自己的
@@ -47,8 +50,7 @@ function log(msg) {
 
 // ── 状态栏文字：进行中说进度，结束说结果，失败说原因 ───────────────────
 function statusText() {
-  const t = tr();
-  switch (ui.phase) {
+    switch (ui.phase) {
     case "running":
       // 后端只在有真实页号时才发页事件；preparing 阶段没有页号就不编。
       return ui.total && ui.page ? t.statusProgress(ui.page, ui.total) : t.preparing;
@@ -68,8 +70,7 @@ function statusText() {
 
 // ── 整屏重绘（同时是语言切换后的重绘入口）──────────────────────────────
 function render() {
-  const t = tr();
-  const isRunning = ui.phase === "running";
+    const isRunning = ui.phase === "running";
   const canExport = !isRunning && !!job;
 
   const status = el("status");
@@ -152,7 +153,7 @@ async function pickFile() {
     });
     if (p) setPath(p);
   } catch (err) {
-    log(tr().dialogFailed + errMsg(err));
+    log(t('dialogFailed') + errMsg(err));
   }
 }
 
@@ -204,12 +205,12 @@ async function bindDragDrop() {
         if (running) return;
         const paths = payload.paths || [];
         setPath(paths.find((p) => isSupported(p)) || null);
-        if (!paths.length) log(tr().notFile);
+        if (!paths.length) log(t('notFile'));
       }
     });
     void unlisten;
   } catch (err) {
-    log(tr().dragNotEnabled + errMsg(err));
+    log(t('dragNotEnabled') + errMsg(err));
   }
 }
 bindDragDrop();
@@ -237,7 +238,7 @@ listen("open-file", (e) => {
 // window 上的函数声明，包一层即可在语言切换时重建（与 index.html 主题脚本
 // 的包装法一致，两层包装互不干扰）。
 function buildMenu() {
-  invoke("build_menu", { lang: current }).catch(() => {});
+  invoke("build_menu", { lang: getLang() }).catch(() => {});
 }
 buildMenu();
 const origApplyLang = window.applyLang;
@@ -303,15 +304,14 @@ el("go").addEventListener("click", async () => {
   el("log").textContent = "";
   el("log-wrap").hidden = true;
   render();
-  log(tr().startLog + inputPath);
+  log(t('startLog') + inputPath);
   try {
     const s = await invoke("ocr_process", { input: inputPath, dpi: 200 });
     job = s;
     ui.phase = "done";
-    log(tr().recognisedLog(s));
+    log(t('recognisedLog', s));
   } catch (err) {
-    const t = tr();
-    const msg = errMsg(err);
+        const msg = errMsg(err);
     const wasCancelled = msg.includes("cancelled");
     ui.phase = wasCancelled ? "cancelled" : "failed";
     ui.error = wasCancelled ? "" : msg;
@@ -335,23 +335,23 @@ el("docx").addEventListener("click", async () => {
   let out;
   try {
     out = await save({
-      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + tr().docxDefault + ".docx",
-      filters: [{ name: tr().docxName, extensions: ["docx"] }],
+      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + t('docxDefault') + ".docx",
+      filters: [{ name: t('docxName'), extensions: ["docx"] }],
     });
   } catch (err) {
-    log(tr().saveDialogFailed + errMsg(err));
+    log(t('saveDialogFailed') + errMsg(err));
     return;
   }
   if (!out) return;
   try {
     const r = await invoke("ocr_export_docx", { output: out });
     outPath = out;
-    log(tr().finished + out);
+    log(t('finished') + out);
     render();
-    el("status").innerHTML = tr().docxDone(r);
+    el("status").innerHTML = t('docxDone', r);
   } catch (err) {
-    log(tr().exportFailed + errMsg(err));
-    el("status").textContent = tr().failed + errMsg(err);
+    log(t('exportFailed') + errMsg(err));
+    el("status").textContent = t('failed') + errMsg(err);
   }
 });
 
@@ -362,24 +362,24 @@ el("txt").addEventListener("click", async () => {
   try {
     out = await save({
       defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + "-text.txt",
-      filters: [{ name: tr().txtName, extensions: ["txt"] }],
+      filters: [{ name: t('txtName'), extensions: ["txt"] }],
     });
   } catch (err) {
-    log(tr().saveDialogFailed + errMsg(err));
+    log(t('saveDialogFailed') + errMsg(err));
     return;
   }
   if (!out) return;
-  log(tr().startLog + inputPath);
+  log(t('startLog') + inputPath);
   try {
     const s = await invoke("ocr_export_txt", { output: out });
     outPath = out;
-    log(tr().exportDone(s));
+    log(t('exportDone', s));
     render();
-    el("status").innerHTML = tr().exportDone(s);
+    el("status").innerHTML = t('exportDone', s);
   } catch (err) {
-    log(tr().exportFailed + errMsg(err));
+    log(t('exportFailed') + errMsg(err));
     ui.error = errMsg(err);
-    el("status").textContent = tr().failed + ui.error;
+    el("status").textContent = t('failed') + ui.error;
   }
 });
 
@@ -389,11 +389,11 @@ el("copy").addEventListener("click", async () => {
   try {
     const s = await invoke("ocr_export_txt", {});
     await copyToClipboard(s.text);
-    log(tr().copied(s.chars));
-    el("status").textContent = tr().copied(s.chars);
+    log(t('copied', s.chars));
+    el("status").textContent = t('copied', s.chars);
   } catch (err) {
-    log(tr().copyFailed + errMsg(err));
-    el("status").textContent = tr().failed + errMsg(err);
+    log(t('copyFailed') + errMsg(err));
+    el("status").textContent = t('failed') + errMsg(err);
   }
 });
 
@@ -403,23 +403,23 @@ el("pdf").addEventListener("click", async () => {
   let out;
   try {
     out = await save({
-      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + tr().saveDefault + ".pdf",
-      filters: [{ name: tr().pdfName, extensions: ["pdf"] }],
+      defaultPath: inputPath.replace(/\.(pdf|png|jpe?g)$/i, "") + t('saveDefault') + ".pdf",
+      filters: [{ name: t('pdfName'), extensions: ["pdf"] }],
     });
   } catch (err) {
-    log(tr().saveDialogFailed + errMsg(err));
+    log(t('saveDialogFailed') + errMsg(err));
     return;
   }
   if (!out) return;
   try {
     const r = await invoke("ocr_export_pdf", { output: out });
     outPath = out;
-    log(tr().finished + out);
+    log(t('finished') + out);
     render();
-    el("status").innerHTML = tr().pdfDone(r);
+    el("status").innerHTML = t('pdfDone', r);
   } catch (err) {
-    log(tr().exportFailed + errMsg(err));
-    el("status").textContent = tr().failed + errMsg(err);
+    log(t('exportFailed') + errMsg(err));
+    el("status").textContent = t('failed') + errMsg(err);
   }
 });
 

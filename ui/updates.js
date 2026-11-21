@@ -1,3 +1,6 @@
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
 /* 更新检查 —— 只在用户主动要求时才联网。
  *
  * ── 为什么不用 Tauri 的 updater 插件 ──────────────────────────────
@@ -21,7 +24,7 @@
  * ── OCR 特有 ──────────────────────────────────────────────────────
  *
  * 原生 JS 无打包器：版本号取 window.__TAURI__.app.getVersion()（与
- * tauri.conf.json 同源，零漂移）；文案走 lang.js 的 tr().update.*；
+ * tauri.conf.json 同源，零漂移）；文案走 lang.js 的 t('update').*；
  * 语言切换沿家族 applyLang 包装链再包一层，切语言时重渲染角落。
  */
 (function () {
@@ -40,7 +43,7 @@
     return typeof window.tr === "function" ? window.tr() : {};
   }
   function label(key, fallback) {
-    var u = tr().update || {};
+    var u = t('update') || {};
     return u[key] || fallback;
   }
 

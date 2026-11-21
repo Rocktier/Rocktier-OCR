@@ -520,15 +520,16 @@
     <button id="cancel" data-i18n="cancel" disabled>Cancel</button>
   </footer>
 
-  <script src="lang.js"></script>
+  <script src="i18n.js"></script>
   <script src="license.js"></script>
   <script src="app.js"></script>
   <script src="updates.js"></script>
   <script>
     // 主题：light ⇄ dark 两态切换（2026-11-15 用户令：全家族取消「跟随系统」）。
-    // 存储键沿用既有的 "rocktier-ocr-theme"：改键会让老用户的偏好丢失，不换键。
+    // 2026-11-19 起统一到 rocktier.theme（与 PDF 仓同键）；旧键仅作读取回落。
     (function () {
-      var KEY = "rocktier-ocr-theme";
+      var KEY = "rocktier.theme";
+      var KEY_LEGACY = "rocktier-ocr-theme";
       var btn = document.getElementById("rocktier.theme");
       if (!btn) return;
 
@@ -540,7 +541,7 @@
 
       function readMode() {
         var saved = null;
-        try { saved = localStorage.getItem(KEY); } catch (e) {}
+        try { saved = localStorage.getItem(KEY) || localStorage.getItem(KEY_LEGACY); } catch (e) {}
         if (saved === "light" || saved === "dark") return saved;
         if (saved === "auto") {
           // 旧「跟随系统」用户：按读取当时的系统值一次性落定并持久化，此后不跟随。

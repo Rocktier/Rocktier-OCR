@@ -1,3 +1,6 @@
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
+/* 语言访问已统一到 ui/i18n.js 的 t(path, vars)（2026-11-19，与 PDF 仓同构） */
 // ─── License: trial & activation（家族 L6，Rust 侧见 src-tauri/src/license.rs）──
 // Vanilla 实现，照 Pic2WebP 提交 4f669ac 的 src/license.js 移植；OCR 没有 UI 框架、
 // 也没有打包器，脚本走经典 <script>（window.__TAURI__ 全局，与 lang.js / app.js 一致），
@@ -62,7 +65,7 @@ function updatePill() {
   const show = licenseInfo && licenseInfo.channel === "direct" && licenseInfo.status !== "licensed";
   pill.hidden = !show;
   if (!show) return;
-  const L = tr().license;
+  const L = t('license');
   /* 徽标颜色统一由 .badge-license 负责（母版 tokens.css），试用/过期同色，
      不再加 expired 修饰类 —— 旧 .license-pill.expired 已随本地 CSS 一并删除。 */
   pill.textContent = licenseInfo.status === "expired" ? L.expiredChip : L.trialChip(licenseInfo.daysLeft);
@@ -175,10 +178,10 @@ function makeLicenseButton(className, text, onClick) {
   return btn;
 }
 
-// 每次打开/状态变化都整块重建正文：文案走 tr().license，语言切换后也总是当前语言。
+// 每次打开/状态变化都整块重建正文：文案走 t('license')，语言切换后也总是当前语言。
 function renderLicenseDialog() {
   if (!licenseEls) buildLicenseDialog();
-  const L = tr().license;
+  const L = t('license');
   const { title, body, footer } = licenseEls;
   // 语言切换重建时保住已输入的激活码
   const prevInput = body.querySelector("#license-code");
@@ -282,7 +285,7 @@ async function submitActivation() {
   if (!code) return;
 
   submittingActivation = true;
-  const L = tr().license;
+  const L = t('license');
   if (activateBtn) {
     activateBtn.disabled = true;
     activateBtn.textContent = L.activating;
@@ -298,10 +301,10 @@ async function submitActivation() {
     const detail = e instanceof Error ? e.message : String(e);
     const err = document.createElement("p");
     err.className = "license-error";
-    err.textContent = tr().license[licenseErrorKey(detail)];
+    err.textContent = t('license')[licenseErrorKey(detail)];
     licenseEls.body.appendChild(err);
     if (activateBtn) {
-      activateBtn.textContent = tr().license.activate;
+      activateBtn.textContent = t('license.activate');
       activateBtn.disabled = !(input && input.value.trim());
     }
   } finally {
@@ -330,8 +333,8 @@ function closeLicenseDialog() {
 async function licenseExportHint() {
   await refreshLicenseStatus();
   if (!licenseInfo || !licenseInfo.enforcing) return "";
-  if (licenseInfo.status === "trial") return tr().license.exportHintTrial(licenseInfo.daysLeft);
-  if (licenseInfo.status === "expired") return tr().license.exportHintExpired;
+  if (licenseInfo.status === "trial") return t('license.exportHintTrial', licenseInfo.daysLeft);
+  if (licenseInfo.status === "expired") return t('license.exportHintExpired');
   return "";
 }
 
