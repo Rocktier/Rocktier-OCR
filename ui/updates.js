@@ -24,7 +24,7 @@
  * ── OCR 特有 ──────────────────────────────────────────────────────
  *
  * 原生 JS 无打包器：版本号取 window.__TAURI__.app.getVersion()（与
- * tauri.conf.json 同源，零漂移）；文案走 lang.js 的 t('update').*；
+ * tauri.conf.json 同源，零漂移）；文案走 i18n.js 的 update 组；；
  * 语言切换沿家族 applyLang 包装链再包一层，切语言时重渲染角落。
  */
 (function () {
@@ -240,7 +240,7 @@
     }
   }
 
-  // 语言切换链（lang.js → app.js → license.js → 本层）：重渲染对话框文案
+  // 语言切换链（i18n.js → app.js → license.js → 本层）：重渲染对话框文案
   var origApplyLang = window.applyLang;
   window.applyLang = function () {
     if (typeof origApplyLang === "function") origApplyLang();
